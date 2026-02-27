@@ -1994,7 +1994,10 @@ void LoadConfig() {
 
     try {
         g_config = Config();
-        g_hotkeyTimestamps.clear();
+        {
+            std::lock_guard<std::mutex> lock(g_hotkeyTimestampsMutex);
+            g_hotkeyTimestamps.clear();
+        }
 
         std::ifstream in(std::filesystem::path(configPath), std::ios::binary);
         if (!in.is_open()) {

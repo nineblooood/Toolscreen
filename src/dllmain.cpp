@@ -133,7 +133,7 @@ std::mutex g_configErrorMutex;
 std::wstring g_modeFilePath;
 std::atomic<bool> g_configLoadFailed{ false };
 std::atomic<bool> g_configLoaded{ false };
-std::map<std::string, std::chrono::steady_clock::time_point> g_hotkeyTimestamps;
+std::unordered_map<std::string, std::chrono::steady_clock::time_point> g_hotkeyTimestamps;
 std::atomic<bool> g_guiNeedsRecenter{ true };
 std::atomic<bool> g_wasCursorVisible{ true };
 // Lock-free GUI toggle debounce timestamp
@@ -143,7 +143,7 @@ enum CapturingState { NONE = 0, DISABLED = 1, NORMAL = 2 };
 std::atomic<CapturingState> g_capturingMousePos{ CapturingState::NONE };
 std::atomic<std::pair<int, int>> g_nextMouseXY{ std::make_pair(-1, -1) };
 
-std::set<DWORD> g_hotkeyMainKeys;
+std::unordered_set<DWORD> g_hotkeyMainKeys;
 std::mutex g_hotkeyMainKeysMutex;
 
 std::mutex g_hotkeyTimestampsMutex;

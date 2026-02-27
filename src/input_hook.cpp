@@ -17,6 +17,8 @@
 #include <chrono>
 #include <map>
 #include <set>
+#include <unordered_map>
+#include <unordered_set>
 #include <windowsx.h>
 
 extern std::atomic<bool> g_showGui;
@@ -42,9 +44,9 @@ extern std::atomic<HCURSOR> g_specialCursorHandle;
 // g_glInitialized is declared in render.h as atomic bool
 extern std::atomic<bool> g_gameWindowActive;
 
-extern std::map<std::string, std::chrono::steady_clock::time_point> g_hotkeyTimestamps;
+extern std::unordered_map<std::string, std::chrono::steady_clock::time_point> g_hotkeyTimestamps;
 extern std::mutex g_hotkeyTimestampsMutex;
-extern std::set<DWORD> g_hotkeyMainKeys;
+extern std::unordered_set<DWORD> g_hotkeyMainKeys;
 extern std::mutex g_hotkeyMainKeysMutex;
 extern std::set<std::string> g_triggerOnReleasePending;
 extern std::set<std::string> g_triggerOnReleaseInvalidated;
@@ -715,7 +717,6 @@ InputHandlerResult HandleWindowOverlayMouse(HWND hWnd, UINT uMsg, WPARAM wParam,
     const int screenW = GetCachedScreenWidth();
     const int screenH = GetCachedScreenHeight();
 
-    bool cursorVisible = IsCursorVisible();
     bool isOverlayInteractionActive = IsWindowOverlayFocused();
 
     if (isOverlayInteractionActive) {
@@ -738,7 +739,11 @@ InputHandlerResult HandleWindowOverlayMouse(HWND hWnd, UINT uMsg, WPARAM wParam,
             ForwardMouseToWindowOverlay(uMsg, mouseX, mouseY, wParam, screenW, screenH);
             return { true, 1 };
         }
-    } else if ((g_showGui.load() || cursorVisible) && (uMsg == WM_LBUTTONDOWN || uMsg == WM_RBUTTONDOWN || uMsg == WM_MBUTTONDOWN)) {
+    } else if ((uMsg == WM_LBUTTONDOWN || uMsg == WM_RBUTTONDOWN || uMsg == WM_MBUTTONDOWN)) {
+        const bool cursorVisible = IsCursorVisible();
+        if (!(g_showGui.load() || cursorVisible)) {
+            return { false, 0 };
+        }
         std::string overlayAtPoint = GetWindowOverlayAtPoint(mouseX, mouseY, screenW, screenH);
         if (!overlayAtPoint.empty()) {
             FocusWindowOverlay(overlayAtPoint);
@@ -931,8 +936,14 @@ InputHandlerResult HandleHotkeys(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPa
     // Even if resolution-change features are unsupported, we must not short-circuit the input pipeline.
     if (!IsResolutionChangeSupported(g_gameVersion)) { return { false, 0 }; }
 
-    // Lock-free check of hotkey main keys - acceptable to race (worst case: miss one keypress)
-    if (g_hotkeyMainKeys.find(rawVkCode) == g_hotkeyMainKeys.end() && g_hotkeyMainKeys.find(vkCode) == g_hotkeyMainKeys.end()) {
+    bool isHotkeyMainKey = false;
+    {
+        std::lock_guard<std::mutex> hotkeyLock(g_hotkeyMainKeysMutex);
+        isHotkeyMainKey = (g_hotkeyMainKeys.find(rawVkCode) != g_hotkeyMainKeys.end()) ||
+                          (g_hotkeyMainKeys.find(vkCode) != g_hotkeyMainKeys.end());
+    }
+
+    if (!isHotkeyMainKey) {
         // This key is not a hotkey main key, but it might invalidate pending trigger-on-release hotkeys
         if (isKeyDown) {
             std::lock_guard<std::mutex> lock(g_triggerOnReleaseMutex);
@@ -982,9 +993,12 @@ InputHandlerResult HandleHotkeys(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPa
                              std::find(hotkey.conditions.gameState.begin(), hotkey.conditions.gameState.end(), gameState) !=
                                  hotkey.conditions.gameState.end();
 
-        // Note: GetHotkeySecondaryMode is thread-safe.
-        std::string currentSecMode = GetHotkeySecondaryMode(hotkeyIdx);
-        bool wouldExitToFullscreen = !currentSecMode.empty() && EqualsIgnoreCase(currentModeId, currentSecMode);
+        std::string currentSecMode;
+        bool wouldExitToFullscreen = false;
+        if (hotkey.allowExitToFullscreenRegardlessOfGameState) {
+            currentSecMode = GetHotkeySecondaryMode(hotkeyIdx);
+            wouldExitToFullscreen = !currentSecMode.empty() && EqualsIgnoreCase(currentModeId, currentSecMode);
+        }
 
         if (!conditionsMet) {
             if (!(hotkey.allowExitToFullscreenRegardlessOfGameState && wouldExitToFullscreen)) {
@@ -1037,15 +1051,22 @@ InputHandlerResult HandleHotkeys(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPa
                 // When triggerOnRelease is true, only fire on key UP; when false (default), only fire on key DOWN
                 if (hotkey.triggerOnRelease != isKeyDown) {
                     auto now = std::chrono::steady_clock::now();
-                    // Lock-free debouncing - race is acceptable (worst case: occasional double-trigger)
-                    if (g_hotkeyTimestamps.count(hotkeyId) &&
-                        std::chrono::duration_cast<std::chrono::milliseconds>(now - g_hotkeyTimestamps[hotkeyId]).count() <
-                            hotkey.debounce) {
+                    bool debounced = false;
+                    {
+                        std::lock_guard<std::mutex> tsLock(g_hotkeyTimestampsMutex);
+                        auto it = g_hotkeyTimestamps.find(hotkeyId);
+                        if (it != g_hotkeyTimestamps.end() &&
+                            std::chrono::duration_cast<std::chrono::milliseconds>(now - it->second).count() < hotkey.debounce) {
+                            debounced = true;
+                        } else {
+                            g_hotkeyTimestamps[hotkeyId] = now;
+                        }
+                    }
+                    if (debounced) {
                         if (s_enableHotkeyDebug) { Log("[Hotkey] Alt hotkey matched but debounced: " + hotkeyId); }
                         if (blockKey) return { true, 0 };
                         return { true, CallWindowProc(g_originalWndProc, hWnd, uMsg, wParam, lParam) };
                     }
-                    g_hotkeyTimestamps[hotkeyId] = now;
 
                     std::string currentSecMode = GetHotkeySecondaryMode(hotkeyIdx);
                     std::string newSecMode = (currentSecMode == alt.mode) ? hotkey.secondaryMode : alt.mode;
@@ -1104,24 +1125,36 @@ InputHandlerResult HandleHotkeys(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPa
                 // When triggerOnRelease is true, only fire on key UP; when false (default), only fire on key DOWN
                 if (hotkey.triggerOnRelease != isKeyDown) {
                     auto now = std::chrono::steady_clock::now();
-                    // Lock-free debouncing - race is acceptable (worst case: occasional double-trigger)
-                    if (g_hotkeyTimestamps.count(hotkeyId) &&
-                        std::chrono::duration_cast<std::chrono::milliseconds>(now - g_hotkeyTimestamps[hotkeyId]).count() < hotkey.debounce) {
+                    bool debounced = false;
+                    {
+                        std::lock_guard<std::mutex> tsLock(g_hotkeyTimestampsMutex);
+                        auto it = g_hotkeyTimestamps.find(hotkeyId);
+                        if (it != g_hotkeyTimestamps.end() &&
+                            std::chrono::duration_cast<std::chrono::milliseconds>(now - it->second).count() < hotkey.debounce) {
+                            debounced = true;
+                        } else {
+                            g_hotkeyTimestamps[hotkeyId] = now;
+                        }
+                    }
+                    if (debounced) {
                         if (s_enableHotkeyDebug) { Log("[Hotkey] Main hotkey matched but debounced: " + hotkeyId); }
                         if (blockKey) return { true, 0 };
                         return { true, CallWindowProc(g_originalWndProc, hWnd, uMsg, wParam, lParam) };
                     }
-                    g_hotkeyTimestamps[hotkeyId] = now;
 
                     // Lock-free read of current mode ID from double-buffer
                     std::string current = g_modeIdBuffers[g_currentModeIdIndex.load(std::memory_order_acquire)];
                     std::string targetMode;
 
-                if (EqualsIgnoreCase(current, currentSecMode)) {
-                    targetMode = cfg.defaultMode;
-                } else {
-                    targetMode = currentSecMode;
-                }
+                    if (currentSecMode.empty()) {
+                        currentSecMode = GetHotkeySecondaryMode(hotkeyIdx);
+                    }
+
+                    if (EqualsIgnoreCase(current, currentSecMode)) {
+                        targetMode = cfg.defaultMode;
+                    } else {
+                        targetMode = currentSecMode;
+                    }
 
                     if (s_enableHotkeyDebug) {
                         Log("[Hotkey] ✓✓✓ MAIN HOTKEY TRIGGERED: " + hotkeyId + " (current: " + current + " -> target: " + targetMode + ")");
@@ -1162,13 +1195,22 @@ InputHandlerResult HandleHotkeys(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPa
                 std::string hotkeyId = "sens_" + GetKeyComboString(sensHotkey.keys);
 
                 auto now = std::chrono::steady_clock::now();
-                if (g_hotkeyTimestamps.count(hotkeyId) &&
-                    std::chrono::duration_cast<std::chrono::milliseconds>(now - g_hotkeyTimestamps[hotkeyId]).count() < sensHotkey.debounce) {
+                bool debounced = false;
+                {
+                    std::lock_guard<std::mutex> tsLock(g_hotkeyTimestampsMutex);
+                    auto it = g_hotkeyTimestamps.find(hotkeyId);
+                    if (it != g_hotkeyTimestamps.end() &&
+                        std::chrono::duration_cast<std::chrono::milliseconds>(now - it->second).count() < sensHotkey.debounce) {
+                        debounced = true;
+                    } else {
+                        g_hotkeyTimestamps[hotkeyId] = now;
+                    }
+                }
+                if (debounced) {
                     if (s_enableHotkeyDebug) { Log("[Hotkey] Sensitivity hotkey matched but debounced: " + hotkeyId); }
                     if (blockKey) return { true, 0 };
                     return { true, CallWindowProc(g_originalWndProc, hWnd, uMsg, wParam, lParam) };
                 }
-                g_hotkeyTimestamps[hotkeyId] = now;
 
                 if (sensHotkey.toggle) {
                     extern TempSensitivityOverride g_tempSensitivityOverride;
@@ -1254,7 +1296,20 @@ InputHandlerResult HandleMouseCoordinateTranslationPhase(HWND hWnd, UINT uMsg, W
 
     PROFILE_SCOPE("HandleMouseCoordinateTranslation");
 
-    ModeViewportInfo geo = GetCurrentModeViewport();
+    ModeViewportInfo geo{};
+    const CachedModeViewport& cachedMode = g_viewportModeCache[g_viewportModeCacheIndex.load(std::memory_order_acquire)];
+    if (cachedMode.valid) {
+        geo.valid = true;
+        geo.width = cachedMode.width;
+        geo.height = cachedMode.height;
+        geo.stretchEnabled = cachedMode.stretchEnabled;
+        geo.stretchX = cachedMode.stretchX;
+        geo.stretchY = cachedMode.stretchY;
+        geo.stretchWidth = cachedMode.stretchWidth;
+        geo.stretchHeight = cachedMode.stretchHeight;
+    } else {
+        geo = GetCurrentModeViewport();
+    }
     if (!geo.valid || geo.width <= 0 || geo.height <= 0 || geo.stretchWidth <= 0 || geo.stretchHeight <= 0) { return { false, 0 }; }
 
     RECT clientRect{};

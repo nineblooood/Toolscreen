@@ -11,6 +11,8 @@
 #include <shared_mutex>
 #include <sstream>
 #include <string>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "config_defaults.h"
@@ -556,7 +558,8 @@ extern std::string g_configLoadError;
 extern std::mutex g_configErrorMutex;
 extern std::wstring g_modeFilePath;
 extern std::atomic<bool> g_configLoadFailed;
-extern std::map<std::string, std::chrono::steady_clock::time_point> g_hotkeyTimestamps;
+extern std::unordered_map<std::string, std::chrono::steady_clock::time_point> g_hotkeyTimestamps;
+extern std::mutex g_hotkeyTimestampsMutex;
 extern std::atomic<bool> g_guiNeedsRecenter;
 // Lock-free GUI toggle debounce timestamp (milliseconds since epoch)
 extern std::atomic<int64_t> g_lastGuiToggleTimeMs;
