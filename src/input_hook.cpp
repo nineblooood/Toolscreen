@@ -142,6 +142,40 @@ InputHandlerResult HandleWindowValidation(HWND hWnd, UINT uMsg, WPARAM wParam, L
     return { false, 0 };
 }
 
+static UINT GetToolscreenIsInstalledMessageId() {
+    static const UINT s_msg = RegisterWindowMessageA("Toolscreen_IsInstalled");
+    return s_msg;
+}
+
+static UINT GetToolscreenGetVersionMessageId() {
+    static const UINT s_msg = RegisterWindowMessageA("Toolscreen_GetVersion");
+    return s_msg;
+}
+
+static LRESULT EncodeToolscreenVersionNumber() {
+    // 0x00MMmmpp (major/minor/patch in 8-bit fields)
+    return static_cast<LRESULT>(((TOOLSCREEN_VERSION_MAJOR & 0xFF) << 16) |
+                                ((TOOLSCREEN_VERSION_MINOR & 0xFF) << 8) |
+                                (TOOLSCREEN_VERSION_PATCH & 0xFF));
+}
+
+InputHandlerResult HandleToolscreenQueryMessages(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
+    PROFILE_SCOPE("HandleToolscreenQueryMessages");
+    (void)hWnd;
+    (void)wParam;
+    (void)lParam;
+
+    if (uMsg == GetToolscreenIsInstalledMessageId()) {
+        return { true, 1 };
+    }
+
+    if (uMsg == GetToolscreenGetVersionMessageId()) {
+        return { true, EncodeToolscreenVersionNumber() };
+    }
+
+    return { false, 0 };
+}
+
 InputHandlerResult HandleNonFullscreenCheck(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     PROFILE_SCOPE("HandleNonFullscreenCheck");
 
@@ -1591,6 +1625,43 @@ InputHandlerResult HandleKeyRebinding(HWND hWnd, UINT uMsg, WPARAM wParam, LPARA
     return { false, 0 };
 }
 
+InputHandlerResult HandleCustomKeyNoRebind(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
+    PROFILE_SCOPE("HandleCustomKeyNoRebind");
+
+    UINT forwardedMsg = 0;
+    if (uMsg == WM_TOOLSCREEN_KEYDOWN_NO_REBIND) {
+        forwardedMsg = WM_KEYDOWN;
+    } else if (uMsg == WM_TOOLSCREEN_KEYUP_NO_REBIND) {
+        forwardedMsg = WM_KEYUP;
+    } else {
+        return { false, 0 };
+    }
+
+    if (g_showGui.load()) {
+        ImGuiInputQueue_EnqueueWin32Message(hWnd, forwardedMsg, wParam, lParam);
+        return { true, 1 };
+    }
+
+    if (g_originalWndProc) { return { true, CallWindowProc(g_originalWndProc, hWnd, forwardedMsg, wParam, lParam) }; }
+    return { true, DefWindowProc(hWnd, forwardedMsg, wParam, lParam) };
+}
+
+InputHandlerResult HandleCustomCharNoRebind(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
+    PROFILE_SCOPE("HandleCustomCharNoRebind");
+
+    if (uMsg != WM_TOOLSCREEN_CHAR_NO_REBIND) { return { false, 0 }; }
+
+    HandleCharLogging(WM_CHAR, wParam, lParam);
+
+    if (g_showGui.load()) {
+        ImGuiInputQueue_EnqueueWin32Message(hWnd, WM_CHAR, wParam, lParam);
+        return { true, 1 };
+    }
+
+    if (g_originalWndProc) { return { true, CallWindowProc(g_originalWndProc, hWnd, WM_CHAR, wParam, lParam) }; }
+    return { true, DefWindowProc(hWnd, WM_CHAR, wParam, lParam) };
+}
+
 InputHandlerResult HandleCharRebinding(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     PROFILE_SCOPE("HandleCharRebinding");
 
@@ -1717,6 +1788,9 @@ LRESULT CALLBACK SubclassedWndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM l
     result = HandleWindowValidation(hWnd, uMsg, wParam, lParam);
     if (result.consumed) return result.result;
 
+    result = HandleToolscreenQueryMessages(hWnd, uMsg, wParam, lParam);
+    if (result.consumed) return result.result;
+
     result = HandleBorderlessToggle(hWnd, uMsg, wParam, lParam);
     if (result.consumed) return result.result;
 
@@ -1777,7 +1851,13 @@ LRESULT CALLBACK SubclassedWndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM l
     result = HandleMouseCoordinateTranslationPhase(hWnd, uMsg, wParam, lParam);
     if (result.consumed) return result.result;
 
+    result = HandleCustomKeyNoRebind(hWnd, uMsg, wParam, lParam);
+    if (result.consumed) return result.result;
+
     result = HandleKeyRebinding(hWnd, uMsg, wParam, lParam);
+    if (result.consumed) return result.result;
+
+    result = HandleCustomCharNoRebind(hWnd, uMsg, wParam, lParam);
     if (result.consumed) return result.result;
 
     result = HandleCharRebinding(hWnd, uMsg, wParam, lParam);
