@@ -429,6 +429,11 @@ if (ImGui::BeginTabItem("Inputs")) {
 
                 static bool s_keyboardLayoutOpen = false;
                 static float s_keyboardLayoutScale = 1.45f;
+                static bool s_layoutEscapeRequiresRelease = false;
+                static bool s_layoutContextPopupWasOpenLastFrame = false;
+                if (s_layoutEscapeRequiresRelease && !ImGui::IsKeyDown(ImGuiKey_Escape)) {
+                    s_layoutEscapeRequiresRelease = false;
+                }
 
                 if (ImGui::Button("Open Keyboard Layout")) { s_keyboardLayoutOpen = true; }
                 ImGui::SameLine();
@@ -446,7 +451,9 @@ if (ImGui::BeginTabItem("Inputs")) {
                     if (target.x < 920.0f) target.x = 920.0f;
                     if (target.y < 560.0f) target.y = 560.0f;
                     ImGui::SetNextWindowSize(target, ImGuiCond_Appearing);
-                    ImGui::OpenPopup("Keyboard Layout");
+                    const ImVec2 center = vp ? ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f, vp->WorkPos.y + vp->WorkSize.y * 0.5f)
+                                              : ImVec2(ImGui::GetIO().DisplaySize.x * 0.5f, ImGui::GetIO().DisplaySize.y * 0.5f);
+                    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
                 }
 
                 auto scanCodeToDisplayName = [&](DWORD scan, DWORD fallbackVk) -> std::string {
@@ -468,27 +475,30 @@ if (ImGui::BeginTabItem("Inputs")) {
                     return std::string("[Unknown]");
                 };
 
-                {
-                    const ImGuiViewport* vp = ImGui::GetMainViewport();
-                    const ImVec2 center = vp ? ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f, vp->WorkPos.y + vp->WorkSize.y * 0.5f)
-                                              : ImVec2(ImGui::GetIO().DisplaySize.x * 0.5f, ImGui::GetIO().DisplaySize.y * 0.5f);
-                    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-                    ImGui::SetNextWindowBgAlpha(1.0f);
-                }
-
-                ImGui::PushStyleColor(ImGuiCol_PopupBg, IM_COL32(18, 19, 22, 255));
-                if (ImGui::BeginPopupModal("Keyboard Layout", &s_keyboardLayoutOpen, ImGuiWindowFlags_NoScrollbar)) {
+                ImGui::SetNextWindowBgAlpha(1.0f);
+                if (s_keyboardLayoutOpen) {
+                    ImGui::PushStyleColor(ImGuiCol_WindowBg, IM_COL32(18, 19, 22, 255));
+                    const bool keyboardLayoutWindowVisible =
+                        ImGui::Begin("Keyboard Layout", &s_keyboardLayoutOpen,
+                                     ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoNavInputs | ImGuiWindowFlags_NoCollapse);
+                    if (keyboardLayoutWindowVisible) {
                     MarkRebindBindingActive();
+                    const bool escapePressedThisFrame = ImGui::IsKeyPressed(ImGuiKey_Escape);
+                    bool layoutEscapeConsumedThisFrame = false;
 
-                    const bool anyRebindBindUiActive = (s_rebindFromKeyToBind != -1) || (s_rebindOutputVKToBind != -1) ||
-                                                      (s_rebindTextOverrideVKToBind != -1) || (s_rebindOutputScanToBind != -1) ||
-                                                      (s_layoutBindTarget != LayoutBindTarget::None) || (s_layoutUnicodeEditIndex != -1) ||
-                                                      ImGui::IsPopupOpen("Rebind Config##layout") || ImGui::IsPopupOpen("Triggers Custom##layout") ||
-                                                      ImGui::IsPopupOpen("Custom Unicode##layout");
+                    const bool anyPopupOpenNow = ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopup);
+                    const bool contextPopupOpenNow = ImGui::IsPopupOpen("Rebind Config##layout") || ImGui::IsPopupOpen("Triggers Custom##layout") ||
+                                                     ImGui::IsPopupOpen("Custom Unicode##layout");
+                    bool blockLayoutEscapeThisFrame = false;
+                    if (escapePressedThisFrame && (anyPopupOpenNow || contextPopupOpenNow || s_layoutContextPopupWasOpenLastFrame)) {
+                        s_layoutEscapeRequiresRelease = true;
+                        blockLayoutEscapeThisFrame = true;
+                        layoutEscapeConsumedThisFrame = true;
+                    }
 
-                    if (ImGui::IsKeyPressed(ImGuiKey_Escape) && !anyRebindBindUiActive) {
-                        s_keyboardLayoutOpen = false;
-                        ImGui::CloseCurrentPopup();
+                    if (s_layoutEscapeRequiresRelease) {
+                        blockLayoutEscapeThisFrame = true;
+                        layoutEscapeConsumedThisFrame = true;
                     }
 
                     {
@@ -1188,6 +1198,8 @@ if (ImGui::BeginTabItem("Inputs")) {
 
                         const bool nestedLayoutPopupOpen = ImGui::IsPopupOpen("Triggers Custom##layout") || ImGui::IsPopupOpen("Custom Unicode##layout");
                         if (ImGui::IsKeyPressed(ImGuiKey_Escape) && !nestedLayoutPopupOpen) {
+                            s_layoutEscapeRequiresRelease = true;
+                            layoutEscapeConsumedThisFrame = true;
                             s_layoutBindTarget = LayoutBindTarget::None;
                             s_layoutBindIndex = -1;
                             s_layoutUnicodeEditIndex = -1;
@@ -1406,6 +1418,8 @@ if (ImGui::BeginTabItem("Inputs")) {
                         if (ImGui::BeginPopupModal("Custom Unicode##layout", NULL, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoTitleBar)) {
                             MarkRebindBindingActive();
                             if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+                                s_layoutEscapeRequiresRelease = true;
+                                layoutEscapeConsumedThisFrame = true;
                                 s_layoutUnicodeEditIndex = -1;
                                 s_layoutUnicodeEditText.clear();
                                 ImGui::CloseCurrentPopup();
@@ -1528,6 +1542,8 @@ if (ImGui::BeginTabItem("Inputs")) {
                             if (ImGui::BeginPopup("Triggers Custom##layout")) {
                                 MarkRebindBindingActive();
                                 if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+                                    s_layoutEscapeRequiresRelease = true;
+                                    layoutEscapeConsumedThisFrame = true;
                                     ImGui::CloseCurrentPopup();
                                 }
 
@@ -1651,10 +1667,24 @@ if (ImGui::BeginTabItem("Inputs")) {
                     ImGui::EndChild();
                     ImGui::PopStyleColor();
 
-                    ImGui::EndPopup();
-                }
+                    const bool anyRebindBindUiActiveAfter = (s_rebindFromKeyToBind != -1) || (s_rebindOutputVKToBind != -1) ||
+                                                            (s_rebindTextOverrideVKToBind != -1) || (s_rebindOutputScanToBind != -1) ||
+                                                            (s_layoutBindTarget != LayoutBindTarget::None) || (s_layoutUnicodeEditIndex != -1) ||
+                                                            ImGui::IsPopupOpen("Rebind Config##layout") || ImGui::IsPopupOpen("Triggers Custom##layout") ||
+                                                            ImGui::IsPopupOpen("Custom Unicode##layout");
+                    if (!blockLayoutEscapeThisFrame && !layoutEscapeConsumedThisFrame && escapePressedThisFrame && !anyRebindBindUiActiveAfter) {
+                        s_keyboardLayoutOpen = false;
+                    }
 
-                ImGui::PopStyleColor();
+                    s_layoutContextPopupWasOpenLastFrame = ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopup);
+                    } else {
+                        s_layoutContextPopupWasOpenLastFrame = false;
+                    }
+                    ImGui::End();
+                    ImGui::PopStyleColor();
+                } else {
+                    s_layoutContextPopupWasOpenLastFrame = false;
+                }
 
                 bool is_rebind_from_binding = (s_rebindFromKeyToBind != -1);
                 if (is_rebind_from_binding) { MarkRebindBindingActive(); }
