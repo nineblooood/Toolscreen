@@ -307,7 +307,8 @@ void UpdateCachedScreenMetrics() {
         }
 
         const bool windowSizeChanged = changed || (prevWidth != newWidth) || (prevHeight != newHeight);
-        const bool shouldEnforceModeSize = startupShouldRunNow || modeSizeChanged || (windowSizeChanged && clientSizeDiffersFromMode);
+        const bool shouldEnforceForExternalResize = IsFullscreen() && windowSizeChanged && clientSizeDiffersFromMode;
+        const bool shouldEnforceModeSize = startupShouldRunNow || modeSizeChanged || shouldEnforceForExternalResize;
 
         if (afterModeW > 0 && afterModeH > 0 && shouldEnforceModeSize && IsResolutionChangeSupported(g_gameVersion)) {
             HWND hwnd = g_minecraftHwnd.load(std::memory_order_relaxed);

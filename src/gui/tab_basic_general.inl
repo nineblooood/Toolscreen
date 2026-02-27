@@ -5,6 +5,22 @@ if (ImGui::BeginTabItem("General")) {
 
     SliderCtrlClickTip();
 
+    ImGui::SeparatorText("Window");
+    {
+        HWND hwnd = g_minecraftHwnd.load(std::memory_order_relaxed);
+        const bool canToggleBorderless = (hwnd != NULL && IsWindow(hwnd));
+
+        if (!canToggleBorderless) { ImGui::BeginDisabled(); }
+        if (ImGui::Button("Go Borderless", ImVec2(150, 0))) {
+            ToggleBorderlessWindowedFullscreen(hwnd);
+        }
+        if (!canToggleBorderless) { ImGui::EndDisabled(); }
+
+        ImGui::SameLine();
+        HelpMarker("Instantly toggles the game window into borderless mode.\n"
+                   "If already borderless, it returns to windowed mode.");
+    }
+
     auto RenderInlineHotkeyBinding = [&](const std::string& targetModeId, const char* label) {
         int hotkeyIdx = -1;
         for (size_t i = 0; i < g_config.hotkeys.size(); ++i) {

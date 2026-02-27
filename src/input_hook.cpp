@@ -811,19 +811,35 @@ InputHandlerResult HandleActivate(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lP
         ApplyWindowsMouseSpeed();
         ApplyKeyRepeatSettings();
 
-        int modeWidth = 0, modeHeight = 0;
-        {
+        int wmWidth = 0;
+        int wmHeight = 0;
+
+        // In windowed/maximized states, preserve the real client size instead of forcing mode dimensions.
+        if (!IsFullscreen()) {
+            RECT clientRect{};
+            if (GetClientRect(hWnd, &clientRect)) {
+                const int clientW = clientRect.right - clientRect.left;
+                const int clientH = clientRect.bottom - clientRect.top;
+                if (clientW > 0 && clientH > 0) {
+                    wmWidth = clientW;
+                    wmHeight = clientH;
+                }
+            }
+        }
+
+        if (wmWidth <= 0 || wmHeight <= 0) {
             auto inputSnap = GetConfigSnapshot();
             const ModeConfig* mode = inputSnap ? GetModeFromSnapshot(*inputSnap, currentModeId) : nullptr;
             if (mode) {
-                modeWidth = mode->width;
-                modeHeight = mode->height;
+                wmWidth = mode->width;
+                wmHeight = mode->height;
             } else {
                 Log("[WINDOW] WARNING: Current mode '" + currentModeId + "' not found in configuration!");
                 return { true, CallWindowProc(g_originalWndProc, hWnd, uMsg, wParam, lParam) };
             }
         }
-        PostMessage(hWnd, WM_SIZE, SIZE_RESTORED, MAKELPARAM(modeWidth, modeHeight));
+
+        PostMessage(hWnd, WM_SIZE, SIZE_RESTORED, MAKELPARAM(wmWidth, wmHeight));
     }
     return { false, 0 };
 }

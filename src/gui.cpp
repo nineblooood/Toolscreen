@@ -521,9 +521,65 @@ static void HelpMarker(const char* desc) {
 }
 
 static void SliderCtrlClickTip() {
-    ImGui::TextDisabled("Tip: Ctrl+Click any slider to input a specific value.");
+    ImGui::TextDisabled("Tip: Double-click any slider to input a specific value.");
     ImGui::Spacing();
 }
+
+static bool ShouldForceSliderTextInputOnDoubleClick() {
+    ImGuiIO& io = ImGui::GetIO();
+    if (io.MouseClickedCount[ImGuiMouseButton_Left] != 2) { return false; }
+    if (!ImGui::IsWindowHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem)) { return false; }
+
+    const ImVec2 cursor = ImGui::GetCursorScreenPos();
+    const float width = ImGui::CalcItemWidth();
+    const float height = ImGui::GetFrameHeight();
+    const ImVec2 mouse = io.MousePos;
+
+    return mouse.x >= cursor.x && mouse.x <= (cursor.x + width) && mouse.y >= cursor.y && mouse.y <= (cursor.y + height);
+}
+
+static bool SliderFloatDoubleClickInput(const char* label, float* v, float v_min, float v_max, const char* format = "%.3f",
+                                        ImGuiSliderFlags flags = 0) {
+    ImGuiIO& io = ImGui::GetIO();
+    const bool forceTextInput = ShouldForceSliderTextInputOnDoubleClick();
+    const bool prevCtrl = io.KeyCtrl;
+    if (forceTextInput) { io.KeyCtrl = true; }
+
+    bool changed = ImGui::SliderScalar(label, ImGuiDataType_Float, v, &v_min, &v_max, format, flags);
+
+    if (forceTextInput) { io.KeyCtrl = prevCtrl; }
+    if (ImGui::IsItemHovered()) { ImGui::SetTooltip("Double click to edit precisely"); }
+    return changed;
+}
+
+static bool SliderIntDoubleClickInput(const char* label, int* v, int v_min, int v_max, const char* format = "%d",
+                                      ImGuiSliderFlags flags = 0) {
+    ImGuiIO& io = ImGui::GetIO();
+    const bool forceTextInput = ShouldForceSliderTextInputOnDoubleClick();
+    const bool prevCtrl = io.KeyCtrl;
+    if (forceTextInput) { io.KeyCtrl = true; }
+
+    bool changed = ImGui::SliderScalar(label, ImGuiDataType_S32, v, &v_min, &v_max, format, flags);
+
+    if (forceTextInput) { io.KeyCtrl = prevCtrl; }
+    if (ImGui::IsItemHovered()) { ImGui::SetTooltip("Double click to edit precisely"); }
+    return changed;
+}
+
+namespace ImGui {
+bool SliderFloatDoubleClickInput(const char* label, float* v, float v_min, float v_max, const char* format = "%.3f",
+                                 ImGuiSliderFlags flags = 0) {
+    return ::SliderFloatDoubleClickInput(label, v, v_min, v_max, format, flags);
+}
+
+bool SliderIntDoubleClickInput(const char* label, int* v, int v_min, int v_max, const char* format = "%d",
+                               ImGuiSliderFlags flags = 0) {
+    return ::SliderIntDoubleClickInput(label, v, v_min, v_max, format, flags);
+}
+}
+
+#define SliderFloat SliderFloatDoubleClickInput
+#define SliderInt SliderIntDoubleClickInput
 
 static void RenderTransitionSettingsHorizontalNoBackground(ModeConfig& mode, const std::string& idSuffix) {
     ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(10, 5));
