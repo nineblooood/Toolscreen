@@ -1628,10 +1628,8 @@ InputHandlerResult HandleKeyRebinding(HWND hWnd, UINT uMsg, WPARAM wParam, LPARA
             const DWORD triggerVK =
                 NormalizeModifierVkFromConfig(rebind.toKey, (rebind.useCustomOutput ? rebind.customOutputScanCode : 0));
 
-            const DWORD textVK = isModifierVk(triggerVK)
-                                     ? triggerVK
-                                     : NormalizeModifierVkFromConfig(
-                                           (rebind.useCustomOutput && rebind.customOutputVK != 0) ? rebind.customOutputVK : triggerVK);
+            const DWORD textVK = NormalizeModifierVkFromConfig(
+                (rebind.useCustomOutput && rebind.customOutputVK != 0) ? rebind.customOutputVK : triggerVK);
 
             UINT outputScanCode = GetScanCodeWithExtendedFlag(triggerVK);
             if (rebind.useCustomOutput && rebind.customOutputScanCode != 0) {
@@ -1690,7 +1688,64 @@ InputHandlerResult HandleKeyRebinding(HWND hWnd, UINT uMsg, WPARAM wParam, LPARA
                     newWParam = MAKEWPARAM(mkState, XBUTTON2);
                 }
 
-                return { true, CallWindowProc(g_originalWndProc, hWnd, newMsg, newWParam, mouseLParam) };
+                LRESULT mouseResult = CallWindowProc(g_originalWndProc, hWnd, newMsg, newWParam, mouseLParam);
+
+                const bool fromKeyIsNonCharMouse =
+                    isMouseButton ||
+                    isModifierVk(rebind.fromKey) || rebind.fromKey == VK_LWIN || rebind.fromKey == VK_RWIN ||
+                    (rebind.fromKey >= VK_F1 && rebind.fromKey <= VK_F24);
+
+                if (isKeyDown && fromKeyIsNonCharMouse) {
+                    const uint32_t configuredUnicodeText =
+                        (rebind.useCustomOutput && rebind.customOutputUnicode != 0) ? (uint32_t)rebind.customOutputUnicode : 0u;
+
+                    const UINT textScanCode = GetScanCodeWithExtendedFlag(textVK);
+                    LPARAM charLParam = BuildKeyboardMessageLParam(textScanCode, true, false, 1, false, false);
+
+                    if (configuredUnicodeText != 0) {
+                        SendMessage(hWnd, WM_TOOLSCREEN_CHAR_NO_REBIND, (WPARAM)(WCHAR)configuredUnicodeText, charLParam);
+                    } else {
+                        WCHAR outChar = 0;
+                        if (textVK == VK_RETURN) {
+                            outChar = L'\r';
+                        } else if (textVK == VK_TAB) {
+                            outChar = L'\t';
+                        } else if (textVK == VK_BACK) {
+                            outChar = L'\b';
+                        } else {
+                            BYTE ks[256] = {};
+                            if (GetKeyboardState(ks)) {
+                                if (rebind.fromKey == VK_SHIFT || rebind.fromKey == VK_LSHIFT || rebind.fromKey == VK_RSHIFT) {
+                                    ks[VK_SHIFT] = 0;
+                                    ks[VK_LSHIFT] = 0;
+                                    ks[VK_RSHIFT] = 0;
+                                } else if (rebind.fromKey == VK_CONTROL || rebind.fromKey == VK_LCONTROL || rebind.fromKey == VK_RCONTROL) {
+                                    ks[VK_CONTROL] = 0;
+                                    ks[VK_LCONTROL] = 0;
+                                    ks[VK_RCONTROL] = 0;
+                                } else if (rebind.fromKey == VK_MENU || rebind.fromKey == VK_LMENU || rebind.fromKey == VK_RMENU) {
+                                    ks[VK_MENU] = 0;
+                                    ks[VK_LMENU] = 0;
+                                    ks[VK_RMENU] = 0;
+                                }
+
+                                (void)TryTranslateVkToCharWithKeyboardState(textVK, ks, outChar);
+                            }
+
+                            if (outChar == 0) {
+                                if (!TryTranslateVkToChar(textVK, false, outChar) || outChar == 0) {
+                                    (void)TryTranslateVkToChar(textVK, true, outChar);
+                                }
+                            }
+                        }
+
+                        if (outChar != 0) {
+                            SendMessage(hWnd, WM_TOOLSCREEN_CHAR_NO_REBIND, static_cast<WPARAM>(outChar), charLParam);
+                        }
+                    }
+                }
+
+                return { true, mouseResult };
             }
 
             const bool isSystemKeyMsg = (uMsg == WM_SYSKEYDOWN || uMsg == WM_SYSKEYUP);
@@ -1698,23 +1753,10 @@ InputHandlerResult HandleKeyRebinding(HWND hWnd, UINT uMsg, WPARAM wParam, LPARA
             const bool useSysKey = isSystemKeyMsg || outputIsAlt;
             UINT outputMsg = isKeyDown ? (useSysKey ? WM_SYSKEYDOWN : WM_KEYDOWN) : (useSysKey ? WM_SYSKEYUP : WM_KEYUP);
 
-            // If the output is a modifier key, we must synthesize it via SendInput so the OS/game keyboard state
-            if (isModifierVk(triggerVK)) {
-                if (isAutoRepeatKeyDown) {
-                    return { true, 0 };
-                }
-
-                (void)SendSynthKeyByScanCode(outputScanCode, isKeyDown);
-                return { true, 0 };
-            }
-
-            // Windows typically sends generic modifier VKs in wParam (VK_SHIFT/VK_CONTROL/VK_MENU)
-            const DWORD msgVk = [&]() -> DWORD {
-                if (triggerVK == VK_LSHIFT || triggerVK == VK_RSHIFT) return VK_SHIFT;
-                if (triggerVK == VK_LCONTROL || triggerVK == VK_RCONTROL) return VK_CONTROL;
-                if (triggerVK == VK_LMENU || triggerVK == VK_RMENU) return VK_MENU;
-                return triggerVK;
-            }();
+            const bool fromKeyIsNonChar =
+                isMouseButton ||
+                isModifierVk(rebind.fromKey) || rebind.fromKey == VK_LWIN || rebind.fromKey == VK_RWIN ||
+                (rebind.fromKey >= VK_F1 && rebind.fromKey <= VK_F24);
 
             UINT repeatCount = 1;
             bool previousState = !isKeyDown;
@@ -1727,28 +1769,18 @@ InputHandlerResult HandleKeyRebinding(HWND hWnd, UINT uMsg, WPARAM wParam, LPARA
                 transitionState = ((lParam & (1LL << 31)) != 0);
             }
 
-            LPARAM newLParam =
-                BuildKeyboardMessageLParam(outputScanCode, isKeyDown, isSystemKeyMsg, repeatCount, previousState, transitionState);
-
-            // Do NOT PostMessage keyboard outputs when the source event is a mouse button.
-            LRESULT keyResult = CallWindowProc(g_originalWndProc, hWnd, outputMsg, msgVk, newLParam);
-
-            const bool fromKeyIsNonChar =
-                isMouseButton ||
-                isModifierVk(rebind.fromKey) || rebind.fromKey == VK_LWIN || rebind.fromKey == VK_RWIN ||
-                (rebind.fromKey >= VK_F1 && rebind.fromKey <= VK_F24);
-
-            if (isKeyDown && fromKeyIsNonChar) {
+            auto emitTypedChar = [&](LPARAM charLParam) {
                 const uint32_t configuredUnicodeText =
-                    (isModifierVk(triggerVK) ? 0u
-                                            : ((rebind.useCustomOutput && rebind.customOutputUnicode != 0)
-                                                   ? (uint32_t)rebind.customOutputUnicode
-                                                   : 0u));
+                    (rebind.useCustomOutput && rebind.customOutputUnicode != 0) ? (uint32_t)rebind.customOutputUnicode : 0u;
 
                 if (configuredUnicodeText != 0) {
                     const UINT charMsg = isSystemKeyMsg ? WM_SYSCHAR : WM_CHAR;
-                    SendUnicodeScalarAsCharMessage(hWnd, charMsg, configuredUnicodeText, newLParam);
-                    return { true, keyResult };
+                    if (charMsg == WM_CHAR && configuredUnicodeText <= 0xFFFFu) {
+                        SendMessage(hWnd, WM_TOOLSCREEN_CHAR_NO_REBIND, (WPARAM)(WCHAR)configuredUnicodeText, charLParam);
+                    } else {
+                        SendUnicodeScalarAsCharMessage(hWnd, charMsg, configuredUnicodeText, charLParam);
+                    }
+                    return;
                 }
 
                 WCHAR outChar = 0;
@@ -1778,12 +1810,59 @@ InputHandlerResult HandleKeyRebinding(HWND hWnd, UINT uMsg, WPARAM wParam, LPARA
 
                         (void)TryTranslateVkToCharWithKeyboardState(textVK, ks, outChar);
                     }
+
+                    if (outChar == 0) {
+                        if (!TryTranslateVkToChar(textVK, false, outChar) || outChar == 0) {
+                            (void)TryTranslateVkToChar(textVK, true, outChar);
+                        }
+                    }
                 }
 
                 if (outChar != 0) {
                     const UINT charMsg = isSystemKeyMsg ? WM_SYSCHAR : WM_CHAR;
-                    CallWindowProc(g_originalWndProc, hWnd, charMsg, static_cast<WPARAM>(outChar), newLParam);
+                    if (charMsg == WM_CHAR) {
+                        SendMessage(hWnd, WM_TOOLSCREEN_CHAR_NO_REBIND, static_cast<WPARAM>(outChar), charLParam);
+                    } else {
+                        CallWindowProc(g_originalWndProc, hWnd, charMsg, static_cast<WPARAM>(outChar), charLParam);
+                    }
                 }
+            };
+
+            // If the output is a modifier key, we must synthesize it via SendInput so the OS/game keyboard state
+            if (isModifierVk(triggerVK)) {
+                const bool sourceIsModifier = isModifierVk(rebind.fromKey) || isModifierVk(vkCode) || isModifierVk(rawVkCode);
+                if (isAutoRepeatKeyDown && !sourceIsModifier) {
+                    return { true, 0 };
+                }
+
+                (void)SendSynthKeyByScanCode(outputScanCode, isKeyDown);
+
+                if (isKeyDown && fromKeyIsNonChar) {
+                    const UINT textScanCode = GetScanCodeWithExtendedFlag(textVK);
+                    LPARAM charLParam =
+                        BuildKeyboardMessageLParam(textScanCode, true, isSystemKeyMsg, repeatCount, previousState, transitionState);
+                    emitTypedChar(charLParam);
+                }
+
+                return { true, 0 };
+            }
+
+            // Windows typically sends generic modifier VKs in wParam (VK_SHIFT/VK_CONTROL/VK_MENU)
+            const DWORD msgVk = [&]() -> DWORD {
+                if (triggerVK == VK_LSHIFT || triggerVK == VK_RSHIFT) return VK_SHIFT;
+                if (triggerVK == VK_LCONTROL || triggerVK == VK_RCONTROL) return VK_CONTROL;
+                if (triggerVK == VK_LMENU || triggerVK == VK_RMENU) return VK_MENU;
+                return triggerVK;
+            }();
+
+            LPARAM newLParam =
+                BuildKeyboardMessageLParam(outputScanCode, isKeyDown, isSystemKeyMsg, repeatCount, previousState, transitionState);
+
+            // Do NOT PostMessage keyboard outputs when the source event is a mouse button.
+            LRESULT keyResult = CallWindowProc(g_originalWndProc, hWnd, outputMsg, msgVk, newLParam);
+
+            if (isKeyDown && fromKeyIsNonChar) {
+                emitTypedChar(newLParam);
             }
 
             return { true, keyResult };

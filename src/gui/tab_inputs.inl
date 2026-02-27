@@ -480,12 +480,11 @@ if (ImGui::BeginTabItem("Inputs")) {
                 if (ImGui::BeginPopupModal("Keyboard Layout", &s_keyboardLayoutOpen, ImGuiWindowFlags_NoScrollbar)) {
                     MarkRebindBindingActive();
 
-                    const bool anyPopupOpen = ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
                     const bool anyRebindBindUiActive = (s_rebindFromKeyToBind != -1) || (s_rebindOutputVKToBind != -1) ||
                                                       (s_rebindTextOverrideVKToBind != -1) || (s_rebindOutputScanToBind != -1) ||
                                                       (s_layoutBindTarget != LayoutBindTarget::None) || (s_layoutUnicodeEditIndex != -1) ||
                                                       ImGui::IsPopupOpen("Rebind Config##layout") || ImGui::IsPopupOpen("Triggers Custom##layout") ||
-                                                      anyPopupOpen;
+                                                      ImGui::IsPopupOpen("Custom Unicode##layout");
 
                     if (ImGui::IsKeyPressed(ImGuiKey_Escape) && !anyRebindBindUiActive) {
                         s_keyboardLayoutOpen = false;
@@ -1132,15 +1131,16 @@ if (ImGui::BeginTabItem("Inputs")) {
                             }
                         };
 
-                        const ImVec2 leftMin = innerMin;
-                        const ImVec2 leftMax = ImVec2(midX, splitY);
-                        const ImVec2 rightMin = ImVec2(midX, innerMin.y);
-                        const ImVec2 rightMax = ImVec2(innerMax.x, splitY);
-
                         const float wheelW = (innerMax.x - innerMin.x) * 0.16f;
                         const float wheelH = topH * 0.55f;
                         const ImVec2 wheelMin = ImVec2(midX - wheelW * 0.5f, innerMin.y + topH * 0.18f);
                         const ImVec2 wheelMax = ImVec2(midX + wheelW * 0.5f, wheelMin.y + wheelH);
+                        const float wheelSideGap = 2.0f * keyboardScale;
+
+                        const ImVec2 leftMin = innerMin;
+                        const ImVec2 leftMax = ImVec2(wheelMin.x - wheelSideGap, splitY);
+                        const ImVec2 rightMin = ImVec2(wheelMax.x + wheelSideGap, innerMin.y);
+                        const ImVec2 rightMax = ImVec2(innerMax.x, splitY);
 
                         const float sideW = (innerMax.x - innerMin.x) * 0.32f;
                         const float sideH = (innerMax.y - innerMin.y) * 0.12f;
@@ -1173,12 +1173,12 @@ if (ImGui::BeginTabItem("Inputs")) {
                         ImGui::SetCursorScreenPos(side1Min);
                         ImGui::InvisibleButton("##mouse_x1", ImVec2(side1Max.x - side1Min.x, side1Max.y - side1Min.y),
                                               ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
-                        drawMouseSegment(VK_XBUTTON1, "MB4", side1Min, side1Max, 6.0f * keyboardScale, ImDrawFlags_RoundCornersAll);
+                        drawMouseSegment(VK_XBUTTON2, "MB5", side1Min, side1Max, 6.0f * keyboardScale, ImDrawFlags_RoundCornersAll);
 
                         ImGui::SetCursorScreenPos(side2Min);
                         ImGui::InvisibleButton("##mouse_x2", ImVec2(side2Max.x - side2Min.x, side2Max.y - side2Min.y),
                                               ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
-                        drawMouseSegment(VK_XBUTTON2, "MB5", side2Min, side2Max, 6.0f * keyboardScale, ImDrawFlags_RoundCornersAll);
+                        drawMouseSegment(VK_XBUTTON1, "MB4", side2Min, side2Max, 6.0f * keyboardScale, ImDrawFlags_RoundCornersAll);
                     }
 
                     ImGui::SetNextWindowPos(ImGui::GetMousePos(), ImGuiCond_Appearing);
@@ -1186,7 +1186,8 @@ if (ImGui::BeginTabItem("Inputs")) {
                         // Also block global ESC-to-close-GUI while editing inside this popup.
                         MarkRebindBindingActive();
 
-                        if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+                        const bool nestedLayoutPopupOpen = ImGui::IsPopupOpen("Triggers Custom##layout") || ImGui::IsPopupOpen("Custom Unicode##layout");
+                        if (ImGui::IsKeyPressed(ImGuiKey_Escape) && !nestedLayoutPopupOpen) {
                             s_layoutBindTarget = LayoutBindTarget::None;
                             s_layoutBindIndex = -1;
                             s_layoutUnicodeEditIndex = -1;
@@ -1404,6 +1405,11 @@ if (ImGui::BeginTabItem("Inputs")) {
 
                         if (ImGui::BeginPopupModal("Custom Unicode##layout", NULL, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoTitleBar)) {
                             MarkRebindBindingActive();
+                            if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+                                s_layoutUnicodeEditIndex = -1;
+                                s_layoutUnicodeEditText.clear();
+                                ImGui::CloseCurrentPopup();
+                            }
                             ImGui::TextUnformatted("Enter a Unicode character or codepoint:");
                             ImGui::TextDisabled("Examples: ø   U+00F8   0x00F8");
                             ImGui::Separator();
@@ -1521,6 +1527,9 @@ if (ImGui::BeginTabItem("Inputs")) {
 
                             if (ImGui::BeginPopup("Triggers Custom##layout")) {
                                 MarkRebindBindingActive();
+                                if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+                                    ImGui::CloseCurrentPopup();
+                                }
 
                                 DWORD curTriggerVk = r ? r->toKey : s_layoutContextVk;
                                 if (curTriggerVk == 0) curTriggerVk = s_layoutContextVk;
