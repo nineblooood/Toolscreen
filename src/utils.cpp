@@ -1498,6 +1498,12 @@ void LoadAllImages() {
     for (const auto& imageConf : imagesToLoad) {
         LoadImageAsync(DecodedImageData::Type::UserImage, imageConf.name, imageConf.path, g_toolscreenPath);
     }
+
+    for (const auto& overlay : g_config.eyezoom.overlays) {
+        if (!overlay.path.empty()) {
+            LoadImageAsync(DecodedImageData::Type::UserImage, "ezoverlay_" + overlay.name, overlay.path, g_toolscreenPath);
+        }
+    }
 }
 
 DWORD WINAPI FileMonitorThread(LPVOID lpParam) {

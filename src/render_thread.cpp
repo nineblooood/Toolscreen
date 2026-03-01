@@ -1760,44 +1760,50 @@ static void RT_RenderEyeZoom(GLuint gameTexture, int requestViewportX, int fullW
     glBindVertexArray(vao);
     glBindBuffer(GL_ARRAY_BUFFER, vbo);
 
-    float pixelWidthOnScreen = zoomOutputWidth / (float)zoomConfig.cloneWidth;
-    int labelsPerSide = zoomConfig.cloneWidth / 2;
-    int overlayLabelsPerSide = zoomConfig.overlayWidth;
-    if (overlayLabelsPerSide < 0) overlayLabelsPerSide = labelsPerSide;
-    if (overlayLabelsPerSide > labelsPerSide) overlayLabelsPerSide = labelsPerSide;
-    float centerY = zoomY_gl + zoomOutputHeight / 2.0f;
+    bool useDefaultOverlay = (zoomConfig.activeOverlayIndex < 0 ||
+                              zoomConfig.activeOverlayIndex >= (int)zoomConfig.overlays.size());
 
-    float boxHeight = zoomConfig.linkRectToFont ? (zoomConfig.textFontSize * 1.2f) : (float)zoomConfig.rectHeight;
+    if (useDefaultOverlay) {
+        // Render default numbered boxes
+        float pixelWidthOnScreen = zoomOutputWidth / (float)zoomConfig.cloneWidth;
+        int labelsPerSide = zoomConfig.cloneWidth / 2;
+        int overlayLabelsPerSide = zoomConfig.overlayWidth;
+        if (overlayLabelsPerSide < 0) overlayLabelsPerSide = labelsPerSide;
+        if (overlayLabelsPerSide > labelsPerSide) overlayLabelsPerSide = labelsPerSide;
+        float centerY = zoomY_gl + zoomOutputHeight / 2.0f;
 
-    for (int xOffset = -overlayLabelsPerSide; xOffset <= overlayLabelsPerSide; xOffset++) {
-        if (xOffset == 0) continue;
+        float boxHeight = zoomConfig.linkRectToFont ? (zoomConfig.textFontSize * 1.2f) : (float)zoomConfig.rectHeight;
 
-        int boxIndex = xOffset + labelsPerSide - (xOffset > 0 ? 1 : 0);
-        float boxLeft = zoomX + (boxIndex * pixelWidthOnScreen);
-        float boxRight = boxLeft + pixelWidthOnScreen;
-        float boxBottom = centerY - boxHeight / 2.0f;
-        float boxTop = centerY + boxHeight / 2.0f;
+        for (int xOffset = -overlayLabelsPerSide; xOffset <= overlayLabelsPerSide; xOffset++) {
+            if (xOffset == 0) continue;
 
-        Color boxColor = (boxIndex % 2 == 0) ? zoomConfig.gridColor1 : zoomConfig.gridColor2;
-        float boxOpacity = (boxIndex % 2 == 0) ? zoomConfig.gridColor1Opacity : zoomConfig.gridColor2Opacity;
-        glUniform4f(rt_solidColorShaderLocs.color, boxColor.r, boxColor.g, boxColor.b, boxOpacity);
+            int boxIndex = xOffset + labelsPerSide - (xOffset > 0 ? 1 : 0);
+            float boxLeft = zoomX + (boxIndex * pixelWidthOnScreen);
+            float boxRight = boxLeft + pixelWidthOnScreen;
+            float boxBottom = centerY - boxHeight / 2.0f;
+            float boxTop = centerY + boxHeight / 2.0f;
 
-        float boxNdcLeft = (boxLeft / (float)fullW) * 2.0f - 1.0f;
-        float boxNdcRight = (boxRight / (float)fullW) * 2.0f - 1.0f;
-        float boxNdcBottom = (boxBottom / (float)fullH) * 2.0f - 1.0f;
-        float boxNdcTop = (boxTop / (float)fullH) * 2.0f - 1.0f;
+            Color boxColor = (boxIndex % 2 == 0) ? zoomConfig.gridColor1 : zoomConfig.gridColor2;
+            float boxOpacity = (boxIndex % 2 == 0) ? zoomConfig.gridColor1Opacity : zoomConfig.gridColor2Opacity;
+            glUniform4f(rt_solidColorShaderLocs.color, boxColor.r, boxColor.g, boxColor.b, boxOpacity);
 
-        float boxVerts[] = {
-            boxNdcLeft, boxNdcBottom, 0, 0, boxNdcRight, boxNdcBottom, 0, 0, boxNdcRight, boxNdcTop, 0, 0,
-            boxNdcLeft, boxNdcBottom, 0, 0, boxNdcRight, boxNdcTop,    0, 0, boxNdcLeft,  boxNdcTop, 0, 0,
-        };
-        glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(boxVerts), boxVerts);
-        glDrawArrays(GL_TRIANGLES, 0, 6);
+            float boxNdcLeft = (boxLeft / (float)fullW) * 2.0f - 1.0f;
+            float boxNdcRight = (boxRight / (float)fullW) * 2.0f - 1.0f;
+            float boxNdcBottom = (boxBottom / (float)fullH) * 2.0f - 1.0f;
+            float boxNdcTop = (boxTop / (float)fullH) * 2.0f - 1.0f;
 
-        int displayNumber = abs(xOffset);
-        float numberCenterX = boxLeft + pixelWidthOnScreen / 2.0f;
-        float numberCenterY = centerY;
-        // For now, we'll skip text labels for OBS (they require cross-thread coordination)
+            float boxVerts[] = {
+                boxNdcLeft, boxNdcBottom, 0, 0, boxNdcRight, boxNdcBottom, 0, 0, boxNdcRight, boxNdcTop, 0, 0,
+                boxNdcLeft, boxNdcBottom, 0, 0, boxNdcRight, boxNdcTop,    0, 0, boxNdcLeft,  boxNdcTop, 0, 0,
+            };
+            glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(boxVerts), boxVerts);
+            glDrawArrays(GL_TRIANGLES, 0, 6);
+
+            int displayNumber = abs(xOffset);
+            float numberCenterX = boxLeft + pixelWidthOnScreen / 2.0f;
+            float numberCenterY = centerY;
+            // For now, we'll skip text labels for OBS (they require cross-thread coordination)
+        }
     }
 
     float centerX = zoomX + zoomOutputWidth / 2.0f;
@@ -1821,6 +1827,68 @@ static void RT_RenderEyeZoom(GLuint gameTexture, int requestViewportX, int fullW
     };
     glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(centerLineVerts), centerLineVerts);
     glDrawArrays(GL_TRIANGLES, 0, 6);
+
+    // Render the selected custom EyeZoom overlay image
+    if (!useDefaultOverlay) {
+        const auto& ov = zoomConfig.overlays[zoomConfig.activeOverlayIndex];
+        glUseProgram(rt_imageRenderProgram);
+        glUniform1i(rt_imageRenderShaderLocs.enableColorKey, 0);
+
+        std::lock_guard<std::mutex> lock(g_userImagesMutex);
+        std::string imageId = "ezoverlay_" + ov.name;
+        auto it = g_userImages.find(imageId);
+        if (it != g_userImages.end() && it->second.textureId != 0) {
+            const UserImageInstance& inst = it->second;
+            int texW = inst.width;
+            int texH = inst.height;
+            if (texW > 0 && texH > 0) {
+                float displayW, displayH;
+                switch (ov.displayMode) {
+                    case EyeZoomOverlayDisplayMode::Manual:
+                        displayW = (float)ov.manualWidth;
+                        displayH = (float)ov.manualHeight;
+                        break;
+                    case EyeZoomOverlayDisplayMode::Stretch:
+                        displayW = (float)zoomOutputWidth;
+                        displayH = (float)zoomOutputHeight;
+                        break;
+                    case EyeZoomOverlayDisplayMode::Fit:
+                    default: {
+                        float scaleF = (std::min)((float)zoomOutputWidth / texW, (float)zoomOutputHeight / texH);
+                        displayW = texW * scaleF;
+                        displayH = texH * scaleF;
+                        break;
+                    }
+                }
+
+                float ovLeft = zoomX + (zoomOutputWidth - displayW) / 2.0f;
+                float ovBottom_gl = zoomY_gl + (zoomOutputHeight - displayH) / 2.0f;
+                float ovRight = ovLeft + displayW;
+                float ovTop_gl = ovBottom_gl + displayH;
+
+                float nx1 = (ovLeft / (float)fullW) * 2.0f - 1.0f;
+                float nx2 = (ovRight / (float)fullW) * 2.0f - 1.0f;
+                float ny1 = (ovBottom_gl / (float)fullH) * 2.0f - 1.0f;
+                float ny2 = (ovTop_gl / (float)fullH) * 2.0f - 1.0f;
+
+                glBindTexture(GL_TEXTURE_2D, inst.textureId);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                glUniform1f(rt_imageRenderShaderLocs.opacity, ov.opacity);
+
+                float ovVerts[] = {
+                    nx1, ny1, 0.0f, 0.0f,
+                    nx2, ny1, 1.0f, 0.0f,
+                    nx2, ny2, 1.0f, 1.0f,
+                    nx1, ny1, 0.0f, 0.0f,
+                    nx2, ny2, 1.0f, 1.0f,
+                    nx1, ny2, 0.0f, 1.0f,
+                };
+                glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(ovVerts), ovVerts);
+                glDrawArrays(GL_TRIANGLES, 0, 6);
+            }
+        }
+    }
 
     glDisable(GL_BLEND);
 }
@@ -3513,32 +3581,35 @@ static void RenderThreadFunc(void* gameGLContext) {
                             IM_COL32(static_cast<int>(zoomConfig.textColor.r * 255), static_cast<int>(zoomConfig.textColor.g * 255),
                                      static_cast<int>(zoomConfig.textColor.b * 255), static_cast<int>(finalTextAlpha * 255));
 
-                        ImFont* font = g_eyeZoomTextFont ? g_eyeZoomTextFont : ImGui::GetFont();
+                        if (zoomConfig.activeOverlayIndex < 0 ||
+                            zoomConfig.activeOverlayIndex >= (int)zoomConfig.overlays.size()) {
+                            ImFont* font = g_eyeZoomTextFont ? g_eyeZoomTextFont : ImGui::GetFont();
 
-                        for (int xOffset = -overlayLabelsPerSide; xOffset <= overlayLabelsPerSide; xOffset++) {
-                            if (xOffset == 0) continue;
+                            for (int xOffset = -overlayLabelsPerSide; xOffset <= overlayLabelsPerSide; xOffset++) {
+                                if (xOffset == 0) continue;
 
-                            int boxIndex = xOffset + labelsPerSide - (xOffset > 0 ? 1 : 0);
-                            float boxLeft = zoomX + (boxIndex * pixelWidthOnScreen);
+                                int boxIndex = xOffset + labelsPerSide - (xOffset > 0 ? 1 : 0);
+                                float boxLeft = zoomX + (boxIndex * pixelWidthOnScreen);
 
-                            int displayNumber = abs(xOffset);
-                            std::string text = std::to_string(displayNumber);
+                                int displayNumber = abs(xOffset);
+                                std::string text = std::to_string(displayNumber);
 
-                            float finalFontSize = fontSize;
-                            ImVec2 textSize = font->CalcTextSizeA(finalFontSize, FLT_MAX, 0.0f, text.c_str());
-                            if (zoomConfig.autoFontSize) {
-                                float maxTextWidth = pixelWidthOnScreen * 0.94f;
-                                if (maxTextWidth > 0.0f && textSize.x > maxTextWidth && textSize.x > 0.0f) {
-                                    float scale = maxTextWidth / textSize.x;
-                                    finalFontSize = (std::max)(6.0f, finalFontSize * scale);
-                                    textSize = font->CalcTextSizeA(finalFontSize, FLT_MAX, 0.0f, text.c_str());
+                                float finalFontSize = fontSize;
+                                ImVec2 textSize = font->CalcTextSizeA(finalFontSize, FLT_MAX, 0.0f, text.c_str());
+                                if (zoomConfig.autoFontSize) {
+                                    float maxTextWidth = pixelWidthOnScreen * 0.94f;
+                                    if (maxTextWidth > 0.0f && textSize.x > maxTextWidth && textSize.x > 0.0f) {
+                                        float scale = maxTextWidth / textSize.x;
+                                        finalFontSize = (std::max)(6.0f, finalFontSize * scale);
+                                        textSize = font->CalcTextSizeA(finalFontSize, FLT_MAX, 0.0f, text.c_str());
+                                    }
                                 }
-                            }
-                            float numberCenterX = boxLeft + pixelWidthOnScreen / 2.0f;
-                            float numberCenterY = centerY;
-                            ImVec2 textPos(numberCenterX - textSize.x / 2.0f, numberCenterY - textSize.y / 2.0f);
+                                float numberCenterX = boxLeft + pixelWidthOnScreen / 2.0f;
+                                float numberCenterY = centerY;
+                                ImVec2 textPos(numberCenterX - textSize.x / 2.0f, numberCenterY - textSize.y / 2.0f);
 
-                            drawList->AddText(font, finalFontSize, textPos, textColor, text.c_str());
+                                drawList->AddText(font, finalFontSize, textPos, textColor, text.c_str());
+                            }
                         }
                     }
                 }

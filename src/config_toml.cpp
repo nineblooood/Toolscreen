@@ -1243,6 +1243,26 @@ void EyeZoomConfigToToml(const EyeZoomConfig& cfg, toml::table& out) {
     out.insert("textColorOpacity", cfg.textColorOpacity);
     out.insert("slideZoomIn", cfg.slideZoomIn);
     out.insert("slideMirrorsIn", cfg.slideMirrorsIn);
+    out.insert("activeOverlayIndex", cfg.activeOverlayIndex);
+
+    if (!cfg.overlays.empty()) {
+        toml::array overlayArr;
+        for (const auto& ov : cfg.overlays) {
+            toml::table ovTbl;
+            ovTbl.insert("name", ov.name);
+            ovTbl.insert("path", ov.path);
+            switch (ov.displayMode) {
+                case EyeZoomOverlayDisplayMode::Manual:  ovTbl.insert("displayMode", "manual"); break;
+                case EyeZoomOverlayDisplayMode::Stretch: ovTbl.insert("displayMode", "stretch"); break;
+                default:                                 ovTbl.insert("displayMode", "fit"); break;
+            }
+            ovTbl.insert("manualWidth", ov.manualWidth);
+            ovTbl.insert("manualHeight", ov.manualHeight);
+            ovTbl.insert("opacity", ov.opacity);
+            overlayArr.push_back(std::move(ovTbl));
+        }
+        out.insert("overlay", std::move(overlayArr));
+    }
 }
 
 void EyeZoomConfigFromToml(const toml::table& tbl, EyeZoomConfig& cfg) {
@@ -1330,6 +1350,26 @@ void EyeZoomConfigFromToml(const toml::table& tbl, EyeZoomConfig& cfg) {
     cfg.textColorOpacity = GetOr(tbl, "textColorOpacity", 1.0f);
     cfg.slideZoomIn = GetOr(tbl, "slideZoomIn", false);
     cfg.slideMirrorsIn = GetOr(tbl, "slideMirrorsIn", false);
+    cfg.activeOverlayIndex = GetOr(tbl, "activeOverlayIndex", -1);
+
+    cfg.overlays.clear();
+    if (auto arr = GetArray(tbl, "overlay")) {
+        for (const auto& elem : *arr) {
+            if (auto t = elem.as_table()) {
+                EyeZoomOverlayConfig ov;
+                ov.name = GetStringOr(*t, "name", "");
+                ov.path = GetStringOr(*t, "path", "");
+                std::string modeStr = GetStringOr(*t, "displayMode", "fit");
+                if (modeStr == "manual")       ov.displayMode = EyeZoomOverlayDisplayMode::Manual;
+                else if (modeStr == "stretch") ov.displayMode = EyeZoomOverlayDisplayMode::Stretch;
+                else                           ov.displayMode = EyeZoomOverlayDisplayMode::Fit;
+                ov.manualWidth = GetOr(*t, "manualWidth", 100);
+                ov.manualHeight = GetOr(*t, "manualHeight", 100);
+                ov.opacity = GetOr(*t, "opacity", 1.0f);
+                cfg.overlays.push_back(std::move(ov));
+            }
+        }
+    }
 }
 
 void KeyRebindToToml(const KeyRebind& cfg, toml::table& out) {

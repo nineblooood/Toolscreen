@@ -1638,60 +1638,64 @@ void handleEyeZoomMode(const GLState& s, float opacity, int animatedViewportX) {
         glBindVertexArray(g_vao);
         glBindBuffer(GL_ARRAY_BUFFER, g_vbo);
 
-        float pixelWidthOnScreen = zoomOutputWidth / (float)zoomConfig.cloneWidth;
-        int labelsPerSide = zoomConfig.cloneWidth / 2;
-        int overlayLabelsPerSide = zoomConfig.overlayWidth;
-        if (overlayLabelsPerSide < 0) overlayLabelsPerSide = labelsPerSide;
-        if (overlayLabelsPerSide > labelsPerSide) overlayLabelsPerSide = labelsPerSide;
-        float centerY_local = zoomOutputHeight / 2.0f;
+        bool useDefaultOverlay_obs1 = (zoomConfig.activeOverlayIndex < 0 ||
+                                      zoomConfig.activeOverlayIndex >= (int)zoomConfig.overlays.size());
+        if (useDefaultOverlay_obs1) {
+            float pixelWidthOnScreen = zoomOutputWidth / (float)zoomConfig.cloneWidth;
+            int labelsPerSide = zoomConfig.cloneWidth / 2;
+            int overlayLabelsPerSide = zoomConfig.overlayWidth;
+            if (overlayLabelsPerSide < 0) overlayLabelsPerSide = labelsPerSide;
+            if (overlayLabelsPerSide > labelsPerSide) overlayLabelsPerSide = labelsPerSide;
+            float centerY_local = zoomOutputHeight / 2.0f;
 
-        float boxHeight;
-        if (zoomConfig.linkRectToFont) {
-            boxHeight = g_overlayTextFontSize * 1.2f;
-        } else {
-            boxHeight = static_cast<float>(zoomConfig.rectHeight);
-        }
+            float boxHeight;
+            if (zoomConfig.linkRectToFont) {
+                boxHeight = g_overlayTextFontSize * 1.2f;
+            } else {
+                boxHeight = static_cast<float>(zoomConfig.rectHeight);
+            }
 
-        std::vector<float> evenVerts, oddVerts;
-        evenVerts.reserve(overlayLabelsPerSide * 6 * 4);
-        oddVerts.reserve(overlayLabelsPerSide * 6 * 4);
+            std::vector<float> evenVerts, oddVerts;
+            evenVerts.reserve(overlayLabelsPerSide * 6 * 4);
+            oddVerts.reserve(overlayLabelsPerSide * 6 * 4);
 
-        for (int xOffset = -overlayLabelsPerSide; xOffset <= overlayLabelsPerSide; xOffset++) {
-            if (xOffset == 0) continue;
+            for (int xOffset = -overlayLabelsPerSide; xOffset <= overlayLabelsPerSide; xOffset++) {
+                if (xOffset == 0) continue;
 
-            int boxIndex = xOffset + labelsPerSide - (xOffset > 0 ? 1 : 0);
-            float boxLeft = boxIndex * pixelWidthOnScreen;
-            float boxRight = boxLeft + pixelWidthOnScreen;
-            float boxBottom_local = centerY_local - boxHeight / 2.0f;
-            float boxTop_local = centerY_local + boxHeight / 2.0f;
+                int boxIndex = xOffset + labelsPerSide - (xOffset > 0 ? 1 : 0);
+                float boxLeft = boxIndex * pixelWidthOnScreen;
+                float boxRight = boxLeft + pixelWidthOnScreen;
+                float boxBottom_local = centerY_local - boxHeight / 2.0f;
+                float boxTop_local = centerY_local + boxHeight / 2.0f;
 
-            float boxNdcLeft = (boxLeft / (float)zoomOutputWidth) * 2.0f - 1.0f;
-            float boxNdcRight = (boxRight / (float)zoomOutputWidth) * 2.0f - 1.0f;
-            float boxNdcBottom = (boxBottom_local / (float)zoomOutputHeight) * 2.0f - 1.0f;
-            float boxNdcTop = (boxTop_local / (float)zoomOutputHeight) * 2.0f - 1.0f;
+                float boxNdcLeft = (boxLeft / (float)zoomOutputWidth) * 2.0f - 1.0f;
+                float boxNdcRight = (boxRight / (float)zoomOutputWidth) * 2.0f - 1.0f;
+                float boxNdcBottom = (boxBottom_local / (float)zoomOutputHeight) * 2.0f - 1.0f;
+                float boxNdcTop = (boxTop_local / (float)zoomOutputHeight) * 2.0f - 1.0f;
 
-            auto& verts = (boxIndex % 2 == 0) ? evenVerts : oddVerts;
-            float quad[] = {
-                boxNdcLeft, boxNdcBottom, 0, 0, boxNdcRight, boxNdcBottom, 0, 0, boxNdcRight, boxNdcTop, 0, 0,
-                boxNdcLeft, boxNdcBottom, 0, 0, boxNdcRight, boxNdcTop,    0, 0, boxNdcLeft,  boxNdcTop, 0, 0,
-            };
-            verts.insert(verts.end(), std::begin(quad), std::end(quad));
+                auto& verts = (boxIndex % 2 == 0) ? evenVerts : oddVerts;
+                float quad[] = {
+                    boxNdcLeft, boxNdcBottom, 0, 0, boxNdcRight, boxNdcBottom, 0, 0, boxNdcRight, boxNdcTop, 0, 0,
+                    boxNdcLeft, boxNdcBottom, 0, 0, boxNdcRight, boxNdcTop,    0, 0, boxNdcLeft,  boxNdcTop, 0, 0,
+                };
+                verts.insert(verts.end(), std::begin(quad), std::end(quad));
 
-            int displayNumber = abs(xOffset);
-            float numberCenterX = zoomX + boxLeft + pixelWidthOnScreen / 2.0f;
-            float numberCenterY = zoomY + zoomOutputHeight / 2.0f;
-            CacheEyeZoomTextLabel(displayNumber, numberCenterX, numberCenterY, zoomConfig.textColor);
-        }
+                int displayNumber = abs(xOffset);
+                float numberCenterX = zoomX + boxLeft + pixelWidthOnScreen / 2.0f;
+                float numberCenterY = zoomY + zoomOutputHeight / 2.0f;
+                CacheEyeZoomTextLabel(displayNumber, numberCenterX, numberCenterY, zoomConfig.textColor);
+            }
 
-        if (!evenVerts.empty()) {
-            glUniform4f(g_solidColorShaderLocs.color, zoomConfig.gridColor1.r, zoomConfig.gridColor1.g, zoomConfig.gridColor1.b, zoomConfig.gridColor1Opacity);
-            glBufferSubData(GL_ARRAY_BUFFER, 0, evenVerts.size() * sizeof(float), evenVerts.data());
-            glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(evenVerts.size() / 4));
-        }
-        if (!oddVerts.empty()) {
-            glUniform4f(g_solidColorShaderLocs.color, zoomConfig.gridColor2.r, zoomConfig.gridColor2.g, zoomConfig.gridColor2.b, zoomConfig.gridColor2Opacity);
-            glBufferSubData(GL_ARRAY_BUFFER, 0, oddVerts.size() * sizeof(float), oddVerts.data());
-            glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(oddVerts.size() / 4));
+            if (!evenVerts.empty()) {
+                glUniform4f(g_solidColorShaderLocs.color, zoomConfig.gridColor1.r, zoomConfig.gridColor1.g, zoomConfig.gridColor1.b, zoomConfig.gridColor1Opacity);
+                glBufferSubData(GL_ARRAY_BUFFER, 0, evenVerts.size() * sizeof(float), evenVerts.data());
+                glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(evenVerts.size() / 4));
+            }
+            if (!oddVerts.empty()) {
+                glUniform4f(g_solidColorShaderLocs.color, zoomConfig.gridColor2.r, zoomConfig.gridColor2.g, zoomConfig.gridColor2.b, zoomConfig.gridColor2Opacity);
+                glBufferSubData(GL_ARRAY_BUFFER, 0, oddVerts.size() * sizeof(float), oddVerts.data());
+                glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(oddVerts.size() / 4));
+            }
         }
 
         float centerX_local = zoomOutputWidth / 2.0f;
@@ -1779,60 +1783,64 @@ void handleEyeZoomMode(const GLState& s, float opacity, int animatedViewportX) {
         glBindVertexArray(g_vao);
         glBindBuffer(GL_ARRAY_BUFFER, g_vbo);
 
-        float pixelWidthOnScreen = zoomOutputWidth / (float)zoomConfig.cloneWidth;
-        int labelsPerSide = zoomConfig.cloneWidth / 2;
-        int overlayLabelsPerSide = zoomConfig.overlayWidth;
-        if (overlayLabelsPerSide < 0) overlayLabelsPerSide = labelsPerSide;
-        if (overlayLabelsPerSide > labelsPerSide) overlayLabelsPerSide = labelsPerSide;
-        float centerY = zoomY + zoomOutputHeight / 2.0f;
+        bool useDefaultOverlay_obs2 = (zoomConfig.activeOverlayIndex < 0 ||
+                                      zoomConfig.activeOverlayIndex >= (int)zoomConfig.overlays.size());
+        if (useDefaultOverlay_obs2) {
+            float pixelWidthOnScreen = zoomOutputWidth / (float)zoomConfig.cloneWidth;
+            int labelsPerSide = zoomConfig.cloneWidth / 2;
+            int overlayLabelsPerSide = zoomConfig.overlayWidth;
+            if (overlayLabelsPerSide < 0) overlayLabelsPerSide = labelsPerSide;
+            if (overlayLabelsPerSide > labelsPerSide) overlayLabelsPerSide = labelsPerSide;
+            float centerY = zoomY + zoomOutputHeight / 2.0f;
 
-        float boxHeight;
-        if (zoomConfig.linkRectToFont) {
-            boxHeight = g_overlayTextFontSize * 1.2f;
-        } else {
-            boxHeight = static_cast<float>(zoomConfig.rectHeight);
-        }
+            float boxHeight;
+            if (zoomConfig.linkRectToFont) {
+                boxHeight = g_overlayTextFontSize * 1.2f;
+            } else {
+                boxHeight = static_cast<float>(zoomConfig.rectHeight);
+            }
 
-        std::vector<float> evenVerts, oddVerts;
-        evenVerts.reserve(overlayLabelsPerSide * 6 * 4);
-        oddVerts.reserve(overlayLabelsPerSide * 6 * 4);
+            std::vector<float> evenVerts, oddVerts;
+            evenVerts.reserve(overlayLabelsPerSide * 6 * 4);
+            oddVerts.reserve(overlayLabelsPerSide * 6 * 4);
 
-        for (int xOffset = -overlayLabelsPerSide; xOffset <= overlayLabelsPerSide; xOffset++) {
-            if (xOffset == 0) continue;
+            for (int xOffset = -overlayLabelsPerSide; xOffset <= overlayLabelsPerSide; xOffset++) {
+                if (xOffset == 0) continue;
 
-            int boxIndex = xOffset + labelsPerSide - (xOffset > 0 ? 1 : 0);
-            float boxLeft = zoomX + (boxIndex * pixelWidthOnScreen);
-            float boxRight = boxLeft + pixelWidthOnScreen;
-            float boxBottom = centerY - boxHeight / 2.0f;
-            float boxTop = centerY + boxHeight / 2.0f;
+                int boxIndex = xOffset + labelsPerSide - (xOffset > 0 ? 1 : 0);
+                float boxLeft = zoomX + (boxIndex * pixelWidthOnScreen);
+                float boxRight = boxLeft + pixelWidthOnScreen;
+                float boxBottom = centerY - boxHeight / 2.0f;
+                float boxTop = centerY + boxHeight / 2.0f;
 
-            float boxNdcLeft = (boxLeft / (float)fullW) * 2.0f - 1.0f;
-            float boxNdcRight = (boxRight / (float)fullW) * 2.0f - 1.0f;
-            float boxNdcBottom = (boxBottom / (float)fullH) * 2.0f - 1.0f;
-            float boxNdcTop = (boxTop / (float)fullH) * 2.0f - 1.0f;
+                float boxNdcLeft = (boxLeft / (float)fullW) * 2.0f - 1.0f;
+                float boxNdcRight = (boxRight / (float)fullW) * 2.0f - 1.0f;
+                float boxNdcBottom = (boxBottom / (float)fullH) * 2.0f - 1.0f;
+                float boxNdcTop = (boxTop / (float)fullH) * 2.0f - 1.0f;
 
-            auto& verts = (boxIndex % 2 == 0) ? evenVerts : oddVerts;
-            float quad[] = {
-                boxNdcLeft, boxNdcBottom, 0, 0, boxNdcRight, boxNdcBottom, 0, 0, boxNdcRight, boxNdcTop, 0, 0,
-                boxNdcLeft, boxNdcBottom, 0, 0, boxNdcRight, boxNdcTop,    0, 0, boxNdcLeft,  boxNdcTop, 0, 0,
-            };
-            verts.insert(verts.end(), std::begin(quad), std::end(quad));
+                auto& verts = (boxIndex % 2 == 0) ? evenVerts : oddVerts;
+                float quad[] = {
+                    boxNdcLeft, boxNdcBottom, 0, 0, boxNdcRight, boxNdcBottom, 0, 0, boxNdcRight, boxNdcTop, 0, 0,
+                    boxNdcLeft, boxNdcBottom, 0, 0, boxNdcRight, boxNdcTop,    0, 0, boxNdcLeft,  boxNdcTop, 0, 0,
+                };
+                verts.insert(verts.end(), std::begin(quad), std::end(quad));
 
-            int displayNumber = abs(xOffset);
-            float numberCenterX = boxLeft + pixelWidthOnScreen / 2.0f;
-            float numberCenterY = centerY;
-            CacheEyeZoomTextLabel(displayNumber, numberCenterX, numberCenterY, zoomConfig.textColor);
-        }
+                int displayNumber = abs(xOffset);
+                float numberCenterX = boxLeft + pixelWidthOnScreen / 2.0f;
+                float numberCenterY = centerY;
+                CacheEyeZoomTextLabel(displayNumber, numberCenterX, numberCenterY, zoomConfig.textColor);
+            }
 
-        if (!evenVerts.empty()) {
-            glUniform4f(g_solidColorShaderLocs.color, zoomConfig.gridColor1.r, zoomConfig.gridColor1.g, zoomConfig.gridColor1.b, zoomConfig.gridColor1Opacity);
-            glBufferSubData(GL_ARRAY_BUFFER, 0, evenVerts.size() * sizeof(float), evenVerts.data());
-            glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(evenVerts.size() / 4));
-        }
-        if (!oddVerts.empty()) {
-            glUniform4f(g_solidColorShaderLocs.color, zoomConfig.gridColor2.r, zoomConfig.gridColor2.g, zoomConfig.gridColor2.b, zoomConfig.gridColor2Opacity);
-            glBufferSubData(GL_ARRAY_BUFFER, 0, oddVerts.size() * sizeof(float), oddVerts.data());
-            glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(oddVerts.size() / 4));
+            if (!evenVerts.empty()) {
+                glUniform4f(g_solidColorShaderLocs.color, zoomConfig.gridColor1.r, zoomConfig.gridColor1.g, zoomConfig.gridColor1.b, zoomConfig.gridColor1Opacity);
+                glBufferSubData(GL_ARRAY_BUFFER, 0, evenVerts.size() * sizeof(float), evenVerts.data());
+                glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(evenVerts.size() / 4));
+            }
+            if (!oddVerts.empty()) {
+                glUniform4f(g_solidColorShaderLocs.color, zoomConfig.gridColor2.r, zoomConfig.gridColor2.g, zoomConfig.gridColor2.b, zoomConfig.gridColor2Opacity);
+                glBufferSubData(GL_ARRAY_BUFFER, 0, oddVerts.size() * sizeof(float), oddVerts.data());
+                glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(oddVerts.size() / 4));
+            }
         }
 
         float centerX = zoomX + zoomOutputWidth / 2.0f;

@@ -435,17 +435,146 @@ if (ImGui::BeginTabItem("Modes")) {
                 ImGui::NextColumn();
                 int maxCloneHeight = mode.height;
                 if (Spinner("##EyeZoomCloneHeight", &g_config.eyezoom.cloneHeight, 10, 1, maxCloneHeight)) g_configIsDirty = true;
-                ImGui::NextColumn();
-                ImGui::Text("Overlay Pixels");
-                ImGui::NextColumn();
-                {
-                    int maxOverlay = g_config.eyezoom.cloneWidth / 2;
-                    if (Spinner("##EyeZoomOverlayWidth", &g_config.eyezoom.overlayWidth, 1, 0, maxOverlay)) g_configIsDirty = true;
-                }
-                ImGui::SameLine();
-                HelpMarker("How many colored overlay boxes + numbers to draw on EACH side of the center line.\n"
-                           "cloneWidth controls how wide the clone samples; overlayWidth only controls how much of the numbered overlay is drawn.");
                 ImGui::Columns(1);
+
+                ImGui::Separator();
+                ImGui::Text("Overlay");
+
+                // -- Default overlay (built-in numbered boxes) --
+                {
+                    if (ImGui::RadioButton("##ezov_radio_default", g_config.eyezoom.activeOverlayIndex == -1)) {
+                        g_config.eyezoom.activeOverlayIndex = -1;
+                        g_configIsDirty = true;
+                    }
+                    ImGui::SameLine();
+                    bool defaultNodeOpen = ImGui::TreeNodeEx("##ezoverlay_default_node", ImGuiTreeNodeFlags_SpanAvailWidth, "Default");
+                    if (defaultNodeOpen) {
+                        int maxOverlay = g_config.eyezoom.cloneWidth / 2;
+                        ImGui::Text("Overlay Pixels");
+                        ImGui::SameLine();
+                        if (Spinner("##EyeZoomOverlayWidth", &g_config.eyezoom.overlayWidth, 1, 0, maxOverlay)) g_configIsDirty = true;
+                        ImGui::SameLine();
+                        HelpMarker("How many colored overlay boxes + numbers to draw on EACH side of the center line.\n"
+                                   "cloneWidth controls how wide the clone samples; overlayWidth only controls how much of the numbered overlay is drawn.");
+                        ImGui::TreePop();
+                    }
+                }
+
+                // -- Custom overlays (user-added images) --
+                int ezoverlay_to_remove = -1;
+                for (size_t ovi = 0; ovi < g_config.eyezoom.overlays.size(); ++ovi) {
+                    auto& ov = g_config.eyezoom.overlays[ovi];
+                    ImGui::PushID(static_cast<int>(ovi));
+
+                    std::string deleteLabel = "X##delete_ezoverlay_" + std::to_string(ovi);
+                    if (ImGui::Button(deleteLabel.c_str(), ImVec2(ImGui::GetFrameHeight(), ImGui::GetFrameHeight()))) {
+                        std::string popupId = "Delete Overlay?##ezov_" + std::to_string(ovi);
+                        ImGui::OpenPopup(popupId.c_str());
+                    }
+
+                    {
+                        std::string popupId = "Delete Overlay?##ezov_" + std::to_string(ovi);
+                        if (ImGui::BeginPopupModal(popupId.c_str(), NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
+                            ImGui::Text("Are you sure you want to delete overlay '%s'?", ov.name.c_str());
+                            ImGui::Separator();
+                            if (ImGui::Button("OK", ImVec2(120, 0))) {
+                                ezoverlay_to_remove = (int)ovi;
+                                g_configIsDirty = true;
+                                ImGui::CloseCurrentPopup();
+                            }
+                            ImGui::SameLine();
+                            if (ImGui::Button("Cancel", ImVec2(120, 0))) { ImGui::CloseCurrentPopup(); }
+                            ImGui::EndPopup();
+                        }
+                    }
+
+                    ImGui::SameLine();
+                    if (ImGui::RadioButton("##ezov_radio", g_config.eyezoom.activeOverlayIndex == (int)ovi)) {
+                        g_config.eyezoom.activeOverlayIndex = (int)ovi;
+                        g_configIsDirty = true;
+                    }
+                    ImGui::SameLine();
+
+                    std::string oldName = ov.name;
+                    bool nodeOpen = ImGui::TreeNodeEx("##ezoverlay_node", ImGuiTreeNodeFlags_SpanAvailWidth, "%s", ov.name.c_str());
+
+                    if (nodeOpen) {
+                        if (ImGui::InputText("Name##ezov", &ov.name)) {
+                            g_configIsDirty = true;
+                        }
+
+                        if (ImGui::InputText("Path##ezov", &ov.path)) {
+                            g_configIsDirty = true;
+                        }
+                        if (ImGui::IsItemDeactivatedAfterEdit() && !ov.path.empty()) {
+                            LoadImageAsync(DecodedImageData::UserImage, "ezoverlay_" + ov.name, ov.path, g_toolscreenPath);
+                        }
+
+                        ImGui::SameLine();
+                        if (ImGui::Button(("Browse...##ezov_" + std::to_string(ovi)).c_str())) {
+                            ImagePickerResult result = OpenImagePickerAndValidate(g_minecraftHwnd.load(), g_toolscreenPath, g_toolscreenPath);
+                            if (result.completed) {
+                                if (result.success) {
+                                    ov.path = result.path;
+                                    g_configIsDirty = true;
+                                    LoadImageAsync(DecodedImageData::UserImage, "ezoverlay_" + ov.name, ov.path, g_toolscreenPath);
+                                }
+                            }
+                        }
+
+                        // File-found badge
+                        if (!ov.path.empty()) {
+                            std::wstring ovWpath = Utf8ToWide(ov.path);
+                            std::wstring ovFinalPath = (PathIsRelativeW(ovWpath.c_str()) && !g_toolscreenPath.empty())
+                                ? (g_toolscreenPath + L"\\" + ovWpath) : ovWpath;
+                            if (std::filesystem::exists(ovFinalPath)) {
+                                ImGui::SameLine();
+                                ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1.0f), "(OK)");
+                                if (ImGui::IsItemHovered()) ImGui::SetTooltip("File exists");
+                            } else {
+                                ImGui::SameLine();
+                                ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "(!)");
+                                if (ImGui::IsItemHovered()) ImGui::SetTooltip("File doesn't exist");
+                            }
+                        }
+
+                        ImGui::Text("Display Mode");
+                        ImGui::SameLine();
+                        int dispMode = static_cast<int>(ov.displayMode);
+                        if (ImGui::RadioButton("Manual##ezov", &dispMode, 0)) { ov.displayMode = EyeZoomOverlayDisplayMode::Manual; g_configIsDirty = true; }
+                        ImGui::SameLine();
+                        if (ImGui::RadioButton("Fit##ezov", &dispMode, 1)) { ov.displayMode = EyeZoomOverlayDisplayMode::Fit; g_configIsDirty = true; }
+                        ImGui::SameLine();
+                        if (ImGui::RadioButton("Stretch##ezov", &dispMode, 2)) { ov.displayMode = EyeZoomOverlayDisplayMode::Stretch; g_configIsDirty = true; }
+
+                        if (ov.displayMode == EyeZoomOverlayDisplayMode::Manual) {
+                            if (ImGui::SliderInt("Width##ezov_mw", &ov.manualWidth, 1, 4096)) g_configIsDirty = true;
+                            if (ImGui::SliderInt("Height##ezov_mh", &ov.manualHeight, 1, 4096)) g_configIsDirty = true;
+                        }
+
+                        if (ImGui::SliderFloat("Opacity##ezov", &ov.opacity, 0.0f, 1.0f)) g_configIsDirty = true;
+
+                        ImGui::TreePop();
+                    }
+                    ImGui::PopID();
+                }
+
+                if (ezoverlay_to_remove != -1) {
+                    g_config.eyezoom.overlays.erase(g_config.eyezoom.overlays.begin() + ezoverlay_to_remove);
+                    if (g_config.eyezoom.activeOverlayIndex == ezoverlay_to_remove) {
+                        g_config.eyezoom.activeOverlayIndex = -1; // fall back to Default
+                    } else if (g_config.eyezoom.activeOverlayIndex > ezoverlay_to_remove) {
+                        g_config.eyezoom.activeOverlayIndex--;
+                    }
+                    g_configIsDirty = true;
+                }
+
+                if (ImGui::Button("Add Overlay")) {
+                    EyeZoomOverlayConfig newOv;
+                    newOv.name = "Overlay " + std::to_string(g_config.eyezoom.overlays.size() + 1);
+                    g_config.eyezoom.overlays.push_back(newOv);
+                    g_configIsDirty = true;
+                }
 
                 ImGui::Separator();
                 ImGui::Text("Placement");

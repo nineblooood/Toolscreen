@@ -369,6 +369,17 @@ struct CursorsConfig {
     CursorConfig wall;
     CursorConfig ingame;
 };
+enum class EyeZoomOverlayDisplayMode { Manual, Fit, Stretch };
+
+struct EyeZoomOverlayConfig {
+    std::string name;
+    std::string path;
+    EyeZoomOverlayDisplayMode displayMode = EyeZoomOverlayDisplayMode::Fit;
+    int manualWidth = 100;
+    int manualHeight = 100;
+    float opacity = 1.0f;
+};
+
 struct EyeZoomConfig {
     int cloneWidth = 24;
     int overlayWidth = 12;
@@ -396,6 +407,8 @@ struct EyeZoomConfig {
     float textColorOpacity = 1.0f;
     bool slideZoomIn = false;
     bool slideMirrorsIn = false;
+    int activeOverlayIndex = -1; // -1 = Default (numbered boxes), 0+ = custom overlay index
+    std::vector<EyeZoomOverlayConfig> overlays;
 };
 struct AppearanceConfig {
     std::string theme = "Dark";
