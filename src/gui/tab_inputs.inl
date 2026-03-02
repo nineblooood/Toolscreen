@@ -671,6 +671,57 @@ if (ImGui::BeginTabItem("Inputs")) {
                         return s;
                     };
 
+                    auto isModifierVk = [](DWORD vk) -> bool {
+                        return vk == VK_CONTROL || vk == VK_LCONTROL || vk == VK_RCONTROL || vk == VK_SHIFT || vk == VK_LSHIFT ||
+                               vk == VK_RSHIFT || vk == VK_MENU || vk == VK_LMENU || vk == VK_RMENU || vk == VK_LWIN || vk == VK_RWIN;
+                    };
+
+                    auto resolveTriggerVkFor = [&](const KeyRebind* rb, DWORD originalVk) -> DWORD {
+                        DWORD triggerVk = rb ? rb->toKey : originalVk;
+                        if (triggerVk == 0) triggerVk = originalVk;
+                        return triggerVk;
+                    };
+
+                    auto resolveTriggerScanFor = [&](const KeyRebind* rb, DWORD originalVk) -> DWORD {
+                        const DWORD triggerVk = resolveTriggerVkFor(rb, originalVk);
+                        DWORD displayScan = (rb && rb->useCustomOutput && rb->customOutputScanCode != 0) ? rb->customOutputScanCode
+                                                                                                            : getScanCodeWithExtendedFlag(triggerVk);
+                        if (displayScan != 0 && (displayScan & 0xFF00) == 0) {
+                            DWORD derived = getScanCodeWithExtendedFlag(triggerVk);
+                            if ((derived & 0xFF00) != 0 && ((derived & 0xFF) == (displayScan & 0xFF))) { displayScan = derived; }
+                        }
+                        return displayScan;
+                    };
+
+                    auto isModifierTriggerScan = [&](DWORD triggerScan, DWORD triggerVk) -> bool {
+                        if ((triggerScan & 0xFF) == 0) return false;
+
+                        DWORD scanVk = MapVirtualKey(triggerScan, MAPVK_VSC_TO_VK_EX);
+                        if (scanVk == 0 && (triggerScan & 0xFF00) != 0) {
+                            scanVk = MapVirtualKey((triggerScan & 0xFF), MAPVK_VSC_TO_VK_EX);
+                        }
+                        if (scanVk == 0) scanVk = triggerVk;
+
+                        return isModifierVk(scanVk);
+                    };
+
+                    auto modifierCannotTypeFor = [&](const KeyRebind* rb, DWORD originalVk) -> bool {
+                        if (!rb) return false;
+                        const DWORD triggerVk = resolveTriggerVkFor(rb, originalVk);
+                        const DWORD triggerScan = resolveTriggerScanFor(rb, originalVk);
+                        return isModifierTriggerScan(triggerScan, triggerVk);
+                    };
+
+                    auto typesValueForDisplay = [&](const KeyRebind* rb, DWORD originalVk) -> std::string {
+                        if (!rb) return VkToString(originalVk);
+                        if (modifierCannotTypeFor(rb, originalVk)) return "Modifier keys cannot type";
+                        if (rb->useCustomOutput && rb->customOutputUnicode != 0) return codepointToDisplay((uint32_t)rb->customOutputUnicode);
+
+                        DWORD textVk = (rb->useCustomOutput && rb->customOutputVK != 0) ? rb->customOutputVK : originalVk;
+                        if (textVk == 0) textVk = originalVk;
+                        return normalizeMouseButtonLabel(VkToString(textVk));
+                    };
+
                     auto drawKeyCell = [&](DWORD vk, const char* label, const ImVec2& pMin, const ImVec2& pMax, const KeyRebind* rb) {
                         const bool hovered = ImGui::IsItemHovered();
                         const bool active = ImGui::IsItemActive();
@@ -781,23 +832,10 @@ if (ImGui::BeginTabItem("Inputs")) {
                         }();
                         const bool showRebindInfo = hasConfigured && !isNoOp;
 
-                        DWORD triggerVK = showRebindInfo ? rb->toKey : vk;
-                        if (triggerVK == 0) triggerVK = vk;
-                        DWORD outScan = (rb && showRebindInfo && rb->useCustomOutput && rb->customOutputScanCode != 0) ? rb->customOutputScanCode
-                                                                                                                          : getScanCodeWithExtendedFlag(triggerVK);
-                        if (outScan != 0 && (outScan & 0xFF00) == 0) {
-                            DWORD derived = getScanCodeWithExtendedFlag(triggerVK);
-                            if ((derived & 0xFF00) != 0 && ((derived & 0xFF) == (outScan & 0xFF))) { outScan = derived; }
-                        }
+                        DWORD triggerVK = showRebindInfo ? resolveTriggerVkFor(rb, vk) : vk;
+                        DWORD outScan = showRebindInfo ? resolveTriggerScanFor(rb, vk) : 0;
 
-                        const std::string primaryText = showRebindInfo
-                                                             ? ((rb->useCustomOutput && rb->customOutputUnicode != 0)
-                                                                    ? codepointToDisplay((uint32_t)rb->customOutputUnicode)
-                                                     : normalizeMouseButtonLabel(
-                                                        VkToString((rb->useCustomOutput && rb->customOutputVK != 0)
-                                                                 ? rb->customOutputVK
-                                                                 : vk)))
-                                                             : std::string(label);
+                        const std::string primaryText = showRebindInfo ? typesValueForDisplay(rb, vk) : std::string(label);
                            const std::string secondaryText = showRebindInfo ? normalizeMouseButtonLabel(scanCodeToDisplayName(outScan, triggerVK))
                                                        : std::string();
 
@@ -958,12 +996,9 @@ if (ImGui::BeginTabItem("Inputs")) {
                             if (ImGui::IsItemHovered()) {
                                 ImGui::BeginTooltip();
                                 if (rb && rb->fromKey != 0 && rb->toKey != 0) {
-                                    DWORD triggerVkTip = rb->toKey != 0 ? rb->toKey : kc.vk;
-                                    DWORD triggerScanTip = getScanCodeWithExtendedFlag(triggerVkTip);
-                                    DWORD outputVkTip = (rb->useCustomOutput && rb->customOutputVK != 0) ? rb->customOutputVK : kc.vk;
-                                    const std::string typesTip = (rb->useCustomOutput && rb->customOutputUnicode != 0)
-                                                                     ? codepointToDisplay((uint32_t)rb->customOutputUnicode)
-                                                                     : normalizeMouseButtonLabel(VkToString(outputVkTip));
+                                    DWORD triggerVkTip = resolveTriggerVkFor(rb, kc.vk);
+                                    DWORD triggerScanTip = resolveTriggerScanFor(rb, kc.vk);
+                                    const std::string typesTip = typesValueForDisplay(rb, kc.vk);
                                     const std::string triggersTip =
                                         normalizeMouseButtonLabel(scanCodeToDisplayName(triggerScanTip, triggerVkTip));
                                     ImGui::Text("Types: %s", typesTip.c_str());
@@ -1003,12 +1038,9 @@ if (ImGui::BeginTabItem("Inputs")) {
                         if (ImGui::IsItemHovered()) {
                             ImGui::BeginTooltip();
                             if (rb && rb->fromKey != 0 && rb->toKey != 0) {
-                                DWORD triggerVkTip = rb->toKey != 0 ? rb->toKey : vk;
-                                DWORD triggerScanTip = getScanCodeWithExtendedFlag(triggerVkTip);
-                                DWORD outputVkTip = (rb->useCustomOutput && rb->customOutputVK != 0) ? rb->customOutputVK : vk;
-                                const std::string typesTip = (rb->useCustomOutput && rb->customOutputUnicode != 0)
-                                                                 ? codepointToDisplay((uint32_t)rb->customOutputUnicode)
-                                                                 : normalizeMouseButtonLabel(VkToString(outputVkTip));
+                                DWORD triggerVkTip = resolveTriggerVkFor(rb, vk);
+                                DWORD triggerScanTip = resolveTriggerScanFor(rb, vk);
+                                const std::string typesTip = typesValueForDisplay(rb, vk);
                                 const std::string triggersTip = normalizeMouseButtonLabel(scanCodeToDisplayName(triggerScanTip, triggerVkTip));
                                 ImGui::Text("Types: %s", typesTip.c_str());
                                 ImGui::Text("Triggers: %s", triggersTip.c_str());
@@ -1121,12 +1153,9 @@ if (ImGui::BeginTabItem("Inputs")) {
                             if (ImGui::IsItemHovered()) {
                                 ImGui::BeginTooltip();
                                 if (rb && rb->fromKey != 0 && rb->toKey != 0) {
-                                    DWORD triggerVkTip = rb->toKey != 0 ? rb->toKey : vk;
-                                    DWORD triggerScanTip = getScanCodeWithExtendedFlag(triggerVkTip);
-                                    DWORD outputVkTip = (rb->useCustomOutput && rb->customOutputVK != 0) ? rb->customOutputVK : vk;
-                                    const std::string typesTip = (rb->useCustomOutput && rb->customOutputUnicode != 0)
-                                                                     ? codepointToDisplay((uint32_t)rb->customOutputUnicode)
-                                                                     : normalizeMouseButtonLabel(VkToString(outputVkTip));
+                                    DWORD triggerVkTip = resolveTriggerVkFor(rb, vk);
+                                    DWORD triggerScanTip = resolveTriggerScanFor(rb, vk);
+                                    const std::string typesTip = typesValueForDisplay(rb, vk);
                                     const std::string triggersTip =
                                         normalizeMouseButtonLabel(scanCodeToDisplayName(triggerScanTip, triggerVkTip));
                                     ImGui::Text("Types: %s", typesTip.c_str());
@@ -1294,18 +1323,12 @@ if (ImGui::BeginTabItem("Inputs")) {
                         };
 
                         auto typesValueFor = [&](const KeyRebind* rb, DWORD originalVk) -> std::string {
-                            if (!rb) return VkToString(originalVk);
-                            if (rb->useCustomOutput && rb->customOutputUnicode != 0) return codepointToDisplay((uint32_t)rb->customOutputUnicode);
-                            DWORD textVk = (rb->useCustomOutput && rb->customOutputVK != 0) ? rb->customOutputVK : originalVk;
-                            if (textVk == 0) textVk = originalVk;
-                            return VkToString(textVk);
+                            return typesValueForDisplay(rb, originalVk);
                         };
 
                         auto triggersValueFor = [&](const KeyRebind* rb, DWORD originalVk) -> std::string {
-                            DWORD triggerVk = rb ? rb->toKey : originalVk;
-                            if (triggerVk == 0) triggerVk = originalVk;
-                            DWORD displayScan = (rb && rb->useCustomOutput && rb->customOutputScanCode != 0) ? rb->customOutputScanCode
-                                                                                                            : getScanCodeWithExtendedFlag(triggerVk);
+                            DWORD triggerVk = resolveTriggerVkFor(rb, originalVk);
+                            DWORD displayScan = resolveTriggerScanFor(rb, originalVk);
                             return scanCodeToDisplayName(displayScan, triggerVk);
                         };
 
@@ -1596,6 +1619,10 @@ if (ImGui::BeginTabItem("Inputs")) {
                             }
                         }
 
+                        if (modifierCannotTypeFor(rbPtr, s_layoutContextVk)) {
+                            ImGui::TextDisabled("Modifier keys cannot type");
+                        }
+
                         ImGui::Spacing();
 
                         if (ImGui::Button("Reset##layout_reset", ImVec2(170, 0))) {
@@ -1644,18 +1671,10 @@ if (ImGui::BeginTabItem("Inputs")) {
                             if (isNoOp(r)) continue;
 
                             std::string fromStr = VkToString(r.fromKey);
-                            std::string typesStr;
-                            if (r.useCustomOutput && r.customOutputUnicode != 0) {
-                                typesStr = codepointToDisplay((uint32_t)r.customOutputUnicode);
-                            } else {
-                                DWORD textVk = (r.useCustomOutput && r.customOutputVK != 0) ? r.customOutputVK : r.fromKey;
-                                if (textVk == 0) textVk = r.fromKey;
-                                typesStr = VkToString(textVk);
-                            }
+                            std::string typesStr = typesValueForDisplay(&r, r.fromKey);
 
-                            DWORD triggerVk = (r.toKey != 0) ? r.toKey : r.fromKey;
-                            DWORD displayScan = (r.useCustomOutput && r.customOutputScanCode != 0) ? r.customOutputScanCode
-                                                                                                   : getScanCodeWithExtendedFlag(triggerVk);
+                            DWORD triggerVk = resolveTriggerVkFor(&r, r.fromKey);
+                            DWORD displayScan = resolveTriggerScanFor(&r, r.fromKey);
                             std::string triggersStr = scanCodeToDisplayName(displayScan, triggerVk);
                             ImGui::Text("%s -> %s & %s", fromStr.c_str(), typesStr.c_str(), triggersStr.c_str());
                             anyShown = true;

@@ -116,6 +116,25 @@ static DWORD NormalizeModifierVkFromConfig(DWORD vk, UINT scanCodeWithFlags = 0)
     }
 }
 
+static bool IsModifierVk(DWORD vk) {
+    return vk == VK_CONTROL || vk == VK_LCONTROL || vk == VK_RCONTROL || vk == VK_SHIFT || vk == VK_LSHIFT || vk == VK_RSHIFT ||
+           vk == VK_MENU || vk == VK_LMENU || vk == VK_RMENU || vk == VK_LWIN || vk == VK_RWIN;
+}
+
+static bool IsModifierScanCode(UINT scanCodeWithFlags) {
+    const UINT scanLow = (scanCodeWithFlags & 0xFF);
+    if (scanLow == 0) return false;
+
+    DWORD mappedVk = static_cast<DWORD>(::MapVirtualKeyW(scanCodeWithFlags, MAPVK_VSC_TO_VK_EX));
+    if (mappedVk == 0 && (scanCodeWithFlags & 0xFF00) != 0) {
+        mappedVk = static_cast<DWORD>(::MapVirtualKeyW(scanLow, MAPVK_VSC_TO_VK_EX));
+    }
+    if (mappedVk == 0) return false;
+
+    mappedVk = NormalizeModifierVkFromConfig(mappedVk, scanCodeWithFlags);
+    return IsModifierVk(mappedVk);
+}
+
 static bool TryGetClientSize(HWND hWnd, int& outW, int& outH) {
     outW = 0;
     outH = 0;
@@ -1682,13 +1701,8 @@ InputHandlerResult HandleKeyRebinding(HWND hWnd, UINT uMsg, WPARAM wParam, LPARA
         const auto& rebind = rebindCfg->keyRebinds.rebinds[i];
 
         if (rebind.enabled && rebind.fromKey != 0 && rebind.toKey != 0 && matchesFromKey(vkCode, rawVkCode, rebind.fromKey)) {
-            auto isModifierVk = [](DWORD vk) {
-                return vk == VK_CONTROL || vk == VK_LCONTROL || vk == VK_RCONTROL || vk == VK_SHIFT || vk == VK_LSHIFT || vk == VK_RSHIFT ||
-                       vk == VK_MENU || vk == VK_LMENU || vk == VK_RMENU || vk == VK_LWIN || vk == VK_RWIN;
-            };
-
             auto isNonCharSourceVk = [&](DWORD vk) {
-                if (isModifierVk(vk)) return true;
+                if (IsModifierVk(vk)) return true;
                 if (vk == VK_LWIN || vk == VK_RWIN) return true;
                 if (vk >= VK_F1 && vk <= VK_F24) return true;
 
@@ -1727,6 +1741,7 @@ InputHandlerResult HandleKeyRebinding(HWND hWnd, UINT uMsg, WPARAM wParam, LPARA
             if (rebind.useCustomOutput && rebind.customOutputScanCode != 0) {
                 outputScanCode = ResolveOutputScanCode(triggerVK, rebind.customOutputScanCode);
             }
+            const bool outputScanIsModifier = IsModifierScanCode(outputScanCode);
 
             if (triggerVK == VK_LBUTTON || triggerVK == VK_RBUTTON || triggerVK == VK_MBUTTON || triggerVK == VK_XBUTTON1 ||
                 triggerVK == VK_XBUTTON2) {
@@ -1919,15 +1934,15 @@ InputHandlerResult HandleKeyRebinding(HWND hWnd, UINT uMsg, WPARAM wParam, LPARA
             };
 
             // If the output is a modifier key, we must synthesize it via SendInput so the OS/game keyboard state
-            if (isModifierVk(triggerVK)) {
-                const bool sourceIsModifier = isModifierVk(rebind.fromKey) || isModifierVk(vkCode) || isModifierVk(rawVkCode);
+            if (IsModifierVk(triggerVK) || outputScanIsModifier) {
+                const bool sourceIsModifier = IsModifierVk(rebind.fromKey) || IsModifierVk(vkCode) || IsModifierVk(rawVkCode);
                 if (isAutoRepeatKeyDown && !sourceIsModifier) {
                     return { true, 0 };
                 }
 
                 (void)SendSynthKeyByScanCode(outputScanCode, isKeyDown);
 
-                if (isKeyDown && fromKeyIsNonChar) {
+                if (isKeyDown && fromKeyIsNonChar && !outputScanIsModifier) {
                     const UINT textScanCode = GetScanCodeWithExtendedFlag(textVK);
                     LPARAM charLParam =
                         BuildKeyboardMessageLParam(textScanCode, true, isSystemKeyMsg, repeatCount, previousState, transitionState);
@@ -2003,11 +2018,6 @@ InputHandlerResult HandleCharRebinding(HWND hWnd, UINT uMsg, WPARAM wParam, LPAR
     for (const auto& rebind : charRebindCfg->keyRebinds.rebinds) {
         if (!rebind.enabled || rebind.fromKey == 0 || rebind.toKey == 0) continue;
 
-        auto isModifierVk = [](DWORD vk) {
-            return vk == VK_CONTROL || vk == VK_LCONTROL || vk == VK_RCONTROL || vk == VK_SHIFT || vk == VK_LSHIFT || vk == VK_RSHIFT ||
-                   vk == VK_MENU || vk == VK_LMENU || vk == VK_RMENU || vk == VK_LWIN || vk == VK_RWIN;
-        };
-
         WCHAR fromUnshifted = 0;
         WCHAR fromShifted = 0;
         bool hasFromUnshifted = TryTranslateVkToChar(rebind.fromKey, false, fromUnshifted);
@@ -2026,9 +2036,15 @@ InputHandlerResult HandleCharRebinding(HWND hWnd, UINT uMsg, WPARAM wParam, LPAR
 
         if (matched) {
             const DWORD baseOutVK = NormalizeModifierVkFromConfig(rebind.toKey, (rebind.useCustomOutput ? rebind.customOutputScanCode : 0));
-            if (isModifierVk(baseOutVK)) {
+            UINT outputScanCode = GetScanCodeWithExtendedFlag(baseOutVK);
+            if (rebind.useCustomOutput && rebind.customOutputScanCode != 0) {
+                outputScanCode = ResolveOutputScanCode(baseOutVK, rebind.customOutputScanCode);
+            }
+
+            if (IsModifierVk(baseOutVK) || IsModifierScanCode(outputScanCode)) {
                 Log("[REBIND WM_CHAR] Consuming char code " + std::to_string(static_cast<unsigned int>(inputChar)) +
-                    " (base output is modifier VK=" + std::to_string((unsigned int)baseOutVK) + ")");
+                    " (modifier trigger output; VK=" + std::to_string((unsigned int)baseOutVK) +
+                    " scan=" + std::to_string((unsigned int)outputScanCode) + ")");
                 return { true, 0 };
             }
 
