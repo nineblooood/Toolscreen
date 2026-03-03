@@ -57,6 +57,7 @@ extern std::mutex g_triggerOnReleaseMutex;
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 static bool s_forcedShowCursor = false;
 static size_t s_bestMatchKeyCount = 0;
+static std::unordered_map<DWORD, size_t> s_bestMatchKeyCountByMainVk;
 
 static void EnsureSystemCursorVisible() {
     if (g_gameVersion < GameVersion(1, 13, 0)) { return; }
@@ -2145,26 +2146,79 @@ InputHandlerResult HandleCharRebinding(HWND hWnd, UINT uMsg, WPARAM wParam, LPAR
 }
 
 static void ResolveHotkeyPriority(UINT uMsg, WPARAM wParam, LPARAM lParam) {
-    s_bestMatchKeyCount = 0;
-
     DWORD vkCode = 0;
+    bool isKeyDownMessage = false;
+    bool isKeyUpMessage = false;
     switch (uMsg) {
     case WM_KEYDOWN:
     case WM_SYSKEYDOWN:
         vkCode = NormalizeModifierVkFromKeyMessage(static_cast<DWORD>(wParam), lParam);
+        isKeyDownMessage = true;
         break;
-    case WM_LBUTTONDOWN: vkCode = VK_LBUTTON; break;
-    case WM_RBUTTONDOWN: vkCode = VK_RBUTTON; break;
-    case WM_MBUTTONDOWN: vkCode = VK_MBUTTON; break;
+    case WM_KEYUP:
+    case WM_SYSKEYUP:
+        vkCode = NormalizeModifierVkFromKeyMessage(static_cast<DWORD>(wParam), lParam);
+        isKeyUpMessage = true;
+        break;
+    case WM_LBUTTONDOWN:
+        vkCode = VK_LBUTTON;
+        isKeyDownMessage = true;
+        break;
+    case WM_RBUTTONDOWN:
+        vkCode = VK_RBUTTON;
+        isKeyDownMessage = true;
+        break;
+    case WM_MBUTTONDOWN:
+        vkCode = VK_MBUTTON;
+        isKeyDownMessage = true;
+        break;
+    case WM_LBUTTONUP:
+        vkCode = VK_LBUTTON;
+        isKeyUpMessage = true;
+        break;
+    case WM_RBUTTONUP:
+        vkCode = VK_RBUTTON;
+        isKeyUpMessage = true;
+        break;
+    case WM_MBUTTONUP:
+        vkCode = VK_MBUTTON;
+        isKeyUpMessage = true;
+        break;
     case WM_XBUTTONDOWN:
         vkCode = (GET_XBUTTON_WPARAM(wParam) == XBUTTON1) ? VK_XBUTTON1 : VK_XBUTTON2;
+        isKeyDownMessage = true;
         break;
-    default: return;
+    case WM_XBUTTONUP:
+        vkCode = (GET_XBUTTON_WPARAM(wParam) == XBUTTON1) ? VK_XBUTTON1 : VK_XBUTTON2;
+        isKeyUpMessage = true;
+        break;
+    default:
+        s_bestMatchKeyCount = 0;
+        return;
     }
+
+    if (isKeyUpMessage) {
+        auto it = s_bestMatchKeyCountByMainVk.find(vkCode);
+        s_bestMatchKeyCount = (it != s_bestMatchKeyCountByMainVk.end()) ? it->second : 0;
+        if (it != s_bestMatchKeyCountByMainVk.end()) {
+            s_bestMatchKeyCountByMainVk.erase(it);
+        }
+        return;
+    }
+
+    if (!isKeyDownMessage) {
+        s_bestMatchKeyCount = 0;
+        return;
+    }
+
+    s_bestMatchKeyCount = 0;
 
     { // Skip resolution entirely for keys that aren't bound to any hotkey
         std::lock_guard<std::mutex> lock(g_hotkeyMainKeysMutex);
-        if (g_hotkeyMainKeys.find(vkCode) == g_hotkeyMainKeys.end()) return;
+        if (g_hotkeyMainKeys.find(vkCode) == g_hotkeyMainKeys.end()) {
+            s_bestMatchKeyCountByMainVk.erase(vkCode);
+            return;
+        }
     }
 
     auto check = [&](const std::vector<DWORD>& keys, const std::vector<DWORD>& exclusions = {}) {
@@ -2186,6 +2240,8 @@ static void ResolveHotkeyPriority(UINT uMsg, WPARAM wParam, LPARAM lParam) {
 
     for (const auto& sh : g_config.sensitivityHotkeys)
         check(sh.keys, sh.conditions.exclusions);
+
+    s_bestMatchKeyCountByMainVk[vkCode] = s_bestMatchKeyCount;
 }
 
 LRESULT CALLBACK SubclassedWndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
