@@ -1811,8 +1811,9 @@ InputHandlerResult HandleKeyRebinding(HWND hWnd, UINT uMsg, WPARAM wParam, LPARA
             const DWORD triggerVK =
                 NormalizeModifierVkFromConfig(rebind.toKey, (rebind.useCustomOutput ? rebind.customOutputScanCode : 0));
 
+            const DWORD defaultTextVK = NormalizeModifierVkFromConfig(rebind.fromKey);
             const DWORD textVK = NormalizeModifierVkFromConfig(
-                (rebind.useCustomOutput && rebind.customOutputVK != 0) ? rebind.customOutputVK : triggerVK);
+                (rebind.useCustomOutput && rebind.customOutputVK != 0) ? rebind.customOutputVK : defaultTextVK);
 
             UINT outputScanCode = GetScanCodeWithExtendedFlag(triggerVK);
             if (rebind.useCustomOutput && rebind.customOutputScanCode != 0) {
@@ -2112,25 +2113,16 @@ InputHandlerResult HandleCharRebinding(HWND hWnd, UINT uMsg, WPARAM wParam, LPAR
         }
 
         if (matched) {
-            const DWORD baseOutVK = NormalizeModifierVkFromConfig(rebind.toKey, (rebind.useCustomOutput ? rebind.customOutputScanCode : 0));
-            UINT outputScanCode = GetScanCodeWithExtendedFlag(baseOutVK);
-            if (rebind.useCustomOutput && rebind.customOutputScanCode != 0) {
-                outputScanCode = ResolveOutputScanCode(baseOutVK, rebind.customOutputScanCode);
-            }
-
-            if (IsModifierVk(baseOutVK) || IsModifierScanCode(outputScanCode)) {
-                Log("[REBIND WM_CHAR] Consuming char code " + std::to_string(static_cast<unsigned int>(inputChar)) +
-                    " (modifier trigger output; VK=" + std::to_string((unsigned int)baseOutVK) +
-                    " scan=" + std::to_string((unsigned int)outputScanCode) + ")");
-                return { true, 0 };
-            }
-
             if (rebind.useCustomOutput && rebind.customOutputUnicode != 0) {
                 LRESULT r = SendUnicodeScalarAsCharMessage(hWnd, uMsg, (uint32_t)rebind.customOutputUnicode, lParam);
                 return { true, r };
             }
 
-            DWORD outputVK = (rebind.useCustomOutput && rebind.customOutputVK != 0) ? rebind.customOutputVK : rebind.toKey;
+            if (!(rebind.useCustomOutput && rebind.customOutputVK != 0)) {
+                return { false, 0 };
+            }
+
+            DWORD outputVK = rebind.customOutputVK;
             outputVK = NormalizeModifierVkFromConfig(outputVK);
 
             WCHAR outputChar = 0;
