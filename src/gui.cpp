@@ -19,6 +19,7 @@
 
 #include <GL/glew.h>
 #include <ShlObj.h>
+#include <shellapi.h>
 #include <Shlwapi.h>
 #include <algorithm>
 #include <atomic>
@@ -41,6 +42,8 @@
 
 #pragma comment(lib, "Shlwapi.lib")
 #pragma comment(lib, "Winhttp.lib")
+
+static constexpr const wchar_t* DISCORD_URL = L"https://discord.gg/A2v6bCJg6K";
 
 bool Spinner(const char* id_label, int* v, int step = 1, int min_val = INT_MIN, int max_val = INT_MAX, float inputWidth = 80.0f,
              float margin = 0.0f);
@@ -3197,6 +3200,66 @@ void RenderSettingsGUI() {
             float buttonWidth = ImGui::CalcTextSize(buttonLabel).x + ImGui::GetStyle().FramePadding.x * 2.0f;
 
             ImVec2 savedCursor = ImGui::GetCursorPos();
+
+            {
+                static GLuint s_discordTexture = 0;
+                static HGLRC s_discordLastCtx = NULL;
+                HGLRC currentCtx = wglGetCurrentContext();
+                if (currentCtx != s_discordLastCtx) {
+                    s_discordTexture = 0;
+                    s_discordLastCtx = currentCtx;
+                }
+
+                if (s_discordTexture == 0) {
+                    HMODULE hModule = NULL;
+                    GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                                       (LPCWSTR)&g_showGui, &hModule);
+                    if (hModule) {
+                        HRSRC hResource = FindResourceW(hModule, MAKEINTRESOURCEW(IDR_DISCORD_PNG), RT_RCDATA);
+                        if (hResource) {
+                            HGLOBAL hData = LoadResource(hModule, hResource);
+                            if (hData) {
+                                DWORD dataSize = SizeofResource(hModule, hResource);
+                                const unsigned char* rawData = (const unsigned char*)LockResource(hData);
+                                if (rawData && dataSize > 0) {
+                                    stbi_set_flip_vertically_on_load_thread(0);
+                                    int w = 0, h = 0, channels = 0;
+                                    unsigned char* pixels = stbi_load_from_memory(rawData, (int)dataSize, &w, &h, &channels, 4);
+                                    if (pixels && w > 0 && h > 0) {
+                                        glGenTextures(1, &s_discordTexture);
+                                        glBindTexture(GL_TEXTURE_2D, s_discordTexture);
+                                        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+                                        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+                                        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+                                        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                                        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+                                        glBindTexture(GL_TEXTURE_2D, 0);
+                                        stbi_image_free(pixels);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (s_discordTexture != 0) {
+                    float iconSize = ImGui::GetFrameHeight();
+                    float margin = ImGui::GetStyle().ItemSpacing.x;
+                    ImGui::SetCursorPos(ImVec2(ImGui::GetWindowWidth() - buttonWidth - iconSize - margin - ImGui::GetStyle().WindowPadding.x, 30.0f));
+                    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+                    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1, 1, 1, 0.1f));
+                    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1, 1, 1, 0.2f));
+                    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
+                    if (ImGui::ImageButton("##discord", (ImTextureID)(intptr_t)s_discordTexture, ImVec2(iconSize, iconSize))) {
+                        ShellExecuteW(NULL, L"open", DISCORD_URL, NULL, NULL, SW_SHOWNORMAL);
+                    }
+                    ImGui::PopStyleVar();
+                    ImGui::PopStyleColor(3);
+                    if (ImGui::IsItemHovered()) {
+                        ImGui::SetTooltip("Join the Toolscreen Discord");
+                    }
+                }
+            }
 
             ImGui::SetCursorPos(ImVec2(ImGui::GetWindowWidth() - buttonWidth - ImGui::GetStyle().WindowPadding.x, 30.0f));
 
