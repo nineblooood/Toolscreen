@@ -548,6 +548,7 @@ if (ImGui::BeginTabItem("Inputs")) {
                         HelpMarker("Visual scale for the keyboard layout preview only.");
 
                         ImGui::TextDisabled("Tip: Right-click a key to configure it.");
+                        ImGui::TextDisabled("Not all rebinds supported by Toolscreen are legal for speedrunning");
 
                         ImGui::Spacing();
                         ImGui::Separator();
