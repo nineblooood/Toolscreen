@@ -1678,8 +1678,12 @@ bool CheckHotkeyMatch(const std::vector<DWORD>& keys, WPARAM wParam, const std::
     if (!triggerOnRelease) {
         for (DWORD excluded_key : exclusionKeys) {
             bool excludedPressed = false;
-            if (excluded_key == VK_CONTROL || excluded_key == VK_LCONTROL) {
+            if (excluded_key == VK_CONTROL) {
                 excludedPressed = ctrl_down_now;
+            } else if (excluded_key == VK_LCONTROL) {
+                excludedPressed = lctrl_down;
+            } else if (excluded_key == VK_RCONTROL) {
+                excludedPressed = rctrl_down;
             } else {
                 excludedPressed = (GetAsyncKeyState(excluded_key) & 0x8000) != 0;
             }
@@ -1734,44 +1738,40 @@ bool CheckHotkeyMatch(const std::vector<DWORD>& keys, WPARAM wParam, const std::
     bool main_key_pressed = (main_key == wParam);
 
     if (!main_key_pressed) {
-        if (main_key == VK_CONTROL && (wParam == VK_LCONTROL || wParam == VK_RCONTROL)) {
-            main_key_pressed = true;
-        } else if (main_key == VK_LCONTROL && (wParam == VK_CONTROL || wParam == VK_RCONTROL)) {
-            main_key_pressed = true;
-        } else if (main_key == VK_SHIFT && (wParam == VK_LSHIFT || wParam == VK_RSHIFT)) {
-            main_key_pressed = true;
-        } else if (main_key == VK_MENU && (wParam == VK_LMENU || wParam == VK_RMENU)) {
-            main_key_pressed = true;
-        }
-    }
-
-    if (!main_key_pressed) {
-        if ((wParam == VK_CONTROL || wParam == VK_RCONTROL) && main_key == VK_LCONTROL) {
-            if (triggerOnRelease) {
-                main_key_pressed = true;
-            } else {
-                main_key_pressed = ctrl_down_now;
-            }
-        } else if (wParam == VK_CONTROL && main_key == VK_RCONTROL) {
-            if (triggerOnRelease) {
-                // For release triggers, we can't use GetAsyncKeyState (key is already released)
-                // Note: This means both left and right will trigger if either is released
-                main_key_pressed = true;
-            } else {
-                main_key_pressed = (GetAsyncKeyState(main_key) & 0x8000) != 0;
-            }
-        } else if (wParam == VK_SHIFT && (main_key == VK_LSHIFT || main_key == VK_RSHIFT)) {
-            if (triggerOnRelease) {
-                main_key_pressed = true;
-            } else {
-                main_key_pressed = (GetAsyncKeyState(main_key) & 0x8000) != 0;
-            }
-        } else if (wParam == VK_MENU && (main_key == VK_LMENU || main_key == VK_RMENU)) {
-            if (triggerOnRelease) {
-                main_key_pressed = true;
-            } else {
-                main_key_pressed = (GetAsyncKeyState(main_key) & 0x8000) != 0;
-            }
+        switch (main_key) {
+        case VK_CONTROL:
+            main_key_pressed = (wParam == VK_CONTROL || wParam == VK_LCONTROL || wParam == VK_RCONTROL);
+            break;
+        case VK_LCONTROL:
+            main_key_pressed = (wParam == VK_LCONTROL) || (wParam == VK_CONTROL && (triggerOnRelease ? true : lctrl_down));
+            break;
+        case VK_RCONTROL:
+            main_key_pressed = (wParam == VK_RCONTROL) || (wParam == VK_CONTROL && (triggerOnRelease ? true : rctrl_down));
+            break;
+        case VK_SHIFT:
+            main_key_pressed = (wParam == VK_SHIFT || wParam == VK_LSHIFT || wParam == VK_RSHIFT);
+            break;
+        case VK_LSHIFT:
+            main_key_pressed = (wParam == VK_LSHIFT) ||
+                               (wParam == VK_SHIFT && (triggerOnRelease ? true : (GetAsyncKeyState(VK_LSHIFT) & 0x8000) != 0));
+            break;
+        case VK_RSHIFT:
+            main_key_pressed = (wParam == VK_RSHIFT) ||
+                               (wParam == VK_SHIFT && (triggerOnRelease ? true : (GetAsyncKeyState(VK_RSHIFT) & 0x8000) != 0));
+            break;
+        case VK_MENU:
+            main_key_pressed = (wParam == VK_MENU || wParam == VK_LMENU || wParam == VK_RMENU);
+            break;
+        case VK_LMENU:
+            main_key_pressed = (wParam == VK_LMENU) ||
+                               (wParam == VK_MENU && (triggerOnRelease ? true : (GetAsyncKeyState(VK_LMENU) & 0x8000) != 0));
+            break;
+        case VK_RMENU:
+            main_key_pressed = (wParam == VK_RMENU) ||
+                               (wParam == VK_MENU && (triggerOnRelease ? true : (GetAsyncKeyState(VK_RMENU) & 0x8000) != 0));
+            break;
+        default:
+            break;
         }
     }
 
@@ -1801,7 +1801,7 @@ bool CheckHotkeyMatch(const std::vector<DWORD>& keys, WPARAM wParam, const std::
                 " RAlt=" + std::to_string(ralt_down));
         }
 
-        if (requires_lctrl && !ctrl_down_now) {
+        if (requires_lctrl && !lctrl_down) {
             if (s_enableHotkeyDebug) Log("[Hotkey] FAIL: Left Ctrl required but not pressed");
             return false;
         }
@@ -1889,13 +1889,14 @@ bool CheckHotkeyMatch(const std::vector<DWORD>& keys, WPARAM wParam, const std::
     return true;
 }
 
-static std::vector<DWORD> NormalizeKeysForComparison(const std::vector<DWORD>& keys) {
+static std::vector<DWORD> NormalizeKeysForComparison(const std::vector<DWORD>& keys, bool collapseCtrlSides, bool collapseShiftSides,
+                                                     bool collapseAltSides) {
     if (keys.empty()) return {};
 
-    auto normalizeModifier = [](DWORD k) -> DWORD {
-        if (k == VK_LCONTROL || k == VK_RCONTROL) return VK_CONTROL;
-        if (k == VK_LSHIFT || k == VK_RSHIFT) return VK_SHIFT;
-        if (k == VK_LMENU || k == VK_RMENU) return VK_MENU;
+    auto normalizeModifier = [collapseCtrlSides, collapseShiftSides, collapseAltSides](DWORD k) -> DWORD {
+        if (collapseCtrlSides && (k == VK_LCONTROL || k == VK_RCONTROL)) return VK_CONTROL;
+        if (collapseShiftSides && (k == VK_LSHIFT || k == VK_RSHIFT)) return VK_SHIFT;
+        if (collapseAltSides && (k == VK_LMENU || k == VK_RMENU)) return VK_MENU;
         return k;
     };
 
@@ -1906,6 +1907,18 @@ static std::vector<DWORD> NormalizeKeysForComparison(const std::vector<DWORD>& k
     std::sort(result.begin(), result.end());
     result.push_back(normalizeModifier(keys.back()));
     return result;
+}
+
+static bool ContainsGenericAltKey(const std::vector<DWORD>& keys) {
+    return std::find(keys.begin(), keys.end(), VK_MENU) != keys.end();
+}
+
+static bool ContainsGenericCtrlKey(const std::vector<DWORD>& keys) {
+    return std::find(keys.begin(), keys.end(), VK_CONTROL) != keys.end();
+}
+
+static bool ContainsGenericShiftKey(const std::vector<DWORD>& keys) {
+    return std::find(keys.begin(), keys.end(), VK_SHIFT) != keys.end();
 }
 
 std::string FindHotkeyConflict(const std::vector<DWORD>& newKeys, const std::string& excludeLabel) {
@@ -1938,12 +1951,29 @@ std::string FindHotkeyConflict(const std::vector<DWORD>& newKeys, const std::str
     for (size_t i = 0; i < g_config.sensitivityHotkeys.size(); ++i)
         add(g_config.sensitivityHotkeys[i].keys, "Sensitivity Hotkey #" + std::to_string(i + 1));
 
-    auto normalized = NormalizeKeysForComparison(newKeys);
+    auto normalizedStrict = NormalizeKeysForComparison(newKeys, false, false, false);
+    const bool newHasGenericAlt = ContainsGenericAltKey(newKeys);
+    const bool newHasGenericCtrl = ContainsGenericCtrlKey(newKeys);
+    const bool newHasGenericShift = ContainsGenericShiftKey(newKeys);
 
     for (const auto& entry : all) {
         if (entry.label == excludeLabel) continue;
-        if (NormalizeKeysForComparison(*entry.keys) == normalized)
+        auto existingStrict = NormalizeKeysForComparison(*entry.keys, false, false, false);
+        if (existingStrict == normalizedStrict)
             return entry.label;
+
+        const bool existingHasGenericCtrl = ContainsGenericCtrlKey(*entry.keys);
+        const bool existingHasGenericShift = ContainsGenericShiftKey(*entry.keys);
+        const bool existingHasGenericAlt = ContainsGenericAltKey(*entry.keys);
+        const bool collapseCtrlSides = newHasGenericCtrl || existingHasGenericCtrl;
+        const bool collapseShiftSides = newHasGenericShift || existingHasGenericShift;
+        const bool collapseAltSides = newHasGenericAlt || existingHasGenericAlt;
+
+        if ((collapseCtrlSides || collapseShiftSides || collapseAltSides) &&
+            NormalizeKeysForComparison(*entry.keys, collapseCtrlSides, collapseShiftSides, collapseAltSides) ==
+                NormalizeKeysForComparison(newKeys, collapseCtrlSides, collapseShiftSides, collapseAltSides)) {
+            return entry.label;
+        }
     }
 
     return "";

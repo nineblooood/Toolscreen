@@ -3097,13 +3097,19 @@ void RenderSettingsGUI() {
         const bool laltDown = (GetAsyncKeyState(VK_LMENU) & 0x8000) != 0;
         const bool raltDown = (GetAsyncKeyState(VK_RMENU) & 0x8000) != 0;
 
-        const bool ctrlPreHeld = s_preHeldKeys.count(VK_LCONTROL) || s_preHeldKeys.count(VK_RCONTROL) || s_preHeldKeys.count(VK_CONTROL);
-        const bool shiftPreHeld = s_preHeldKeys.count(VK_LSHIFT) || s_preHeldKeys.count(VK_RSHIFT) || s_preHeldKeys.count(VK_SHIFT);
-        const bool altPreHeld = s_preHeldKeys.count(VK_LMENU) || s_preHeldKeys.count(VK_RMENU) || s_preHeldKeys.count(VK_MENU);
+        const bool lctrlPreHeld = s_preHeldKeys.count(VK_LCONTROL) || s_preHeldKeys.count(VK_CONTROL);
+        const bool rctrlPreHeld = s_preHeldKeys.count(VK_RCONTROL) || s_preHeldKeys.count(VK_CONTROL);
+        const bool lshiftPreHeld = s_preHeldKeys.count(VK_LSHIFT) || s_preHeldKeys.count(VK_SHIFT);
+        const bool rshiftPreHeld = s_preHeldKeys.count(VK_RSHIFT) || s_preHeldKeys.count(VK_SHIFT);
+        const bool laltPreHeld = s_preHeldKeys.count(VK_LMENU) || s_preHeldKeys.count(VK_MENU);
+        const bool raltPreHeld = s_preHeldKeys.count(VK_RMENU) || s_preHeldKeys.count(VK_MENU);
 
-        if ((lctrlDown || rctrlDown) && !ctrlPreHeld) currentlyPressed.push_back(VK_CONTROL);
-        if ((lshiftDown || rshiftDown) && !shiftPreHeld) currentlyPressed.push_back(VK_SHIFT);
-        if ((laltDown || raltDown) && !altPreHeld) currentlyPressed.push_back(VK_MENU);
+        if (lctrlDown && !lctrlPreHeld) currentlyPressed.push_back(VK_LCONTROL);
+        if (rctrlDown && !rctrlPreHeld) currentlyPressed.push_back(VK_RCONTROL);
+        if (lshiftDown && !lshiftPreHeld) currentlyPressed.push_back(VK_LSHIFT);
+        if (rshiftDown && !rshiftPreHeld) currentlyPressed.push_back(VK_RSHIFT);
+        if (laltDown && !laltPreHeld) currentlyPressed.push_back(VK_LMENU);
+        if (raltDown && !raltPreHeld) currentlyPressed.push_back(VK_RMENU);
 
         for (int vk = 1; vk < 0xFF; ++vk) {
             // Skip escape (used for cancel), generic modifiers, and Windows keys
