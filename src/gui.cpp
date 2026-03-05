@@ -731,13 +731,23 @@ static bool SliderFloatDoubleClickInput(const char* label, float* v, float v_min
     const bool forceTextInput = ShouldForceSliderTextInputFromMouseShortcut(&spoofLeftClick);
     const bool prevCtrl = io.KeyCtrl;
     const bool prevMouseClickedLeft = io.MouseClicked[ImGuiMouseButton_Left];
+    const bool prevMouseDownLeft = io.MouseDown[ImGuiMouseButton_Left];
+    const float prevMouseDownDurationLeft = io.MouseDownDuration[ImGuiMouseButton_Left];
     if (forceTextInput) { io.KeyCtrl = true; }
-    if (spoofLeftClick) { io.MouseClicked[ImGuiMouseButton_Left] = true; }
+    if (spoofLeftClick) {
+        io.MouseClicked[ImGuiMouseButton_Left] = true;
+        io.MouseDown[ImGuiMouseButton_Left] = true;
+        io.MouseDownDuration[ImGuiMouseButton_Left] = 0.0f;
+    }
 
     bool changed = ImGui::SliderScalar(label, ImGuiDataType_Float, v, &v_min, &v_max, format, flags);
 
     if (forceTextInput) { io.KeyCtrl = prevCtrl; }
-    if (spoofLeftClick) { io.MouseClicked[ImGuiMouseButton_Left] = prevMouseClickedLeft; }
+    if (spoofLeftClick) {
+        io.MouseClicked[ImGuiMouseButton_Left] = prevMouseClickedLeft;
+        io.MouseDown[ImGuiMouseButton_Left] = prevMouseDownLeft;
+        io.MouseDownDuration[ImGuiMouseButton_Left] = prevMouseDownDurationLeft;
+    }
     if (ImGui::IsItemHovered()) { ImGui::SetTooltip("Right click to edit precisely"); }
     return changed;
 }
@@ -749,13 +759,23 @@ static bool SliderIntDoubleClickInput(const char* label, int* v, int v_min, int 
     const bool forceTextInput = ShouldForceSliderTextInputFromMouseShortcut(&spoofLeftClick);
     const bool prevCtrl = io.KeyCtrl;
     const bool prevMouseClickedLeft = io.MouseClicked[ImGuiMouseButton_Left];
+    const bool prevMouseDownLeft = io.MouseDown[ImGuiMouseButton_Left];
+    const float prevMouseDownDurationLeft = io.MouseDownDuration[ImGuiMouseButton_Left];
     if (forceTextInput) { io.KeyCtrl = true; }
-    if (spoofLeftClick) { io.MouseClicked[ImGuiMouseButton_Left] = true; }
+    if (spoofLeftClick) {
+        io.MouseClicked[ImGuiMouseButton_Left] = true;
+        io.MouseDown[ImGuiMouseButton_Left] = true;
+        io.MouseDownDuration[ImGuiMouseButton_Left] = 0.0f;
+    }
 
     bool changed = ImGui::SliderScalar(label, ImGuiDataType_S32, v, &v_min, &v_max, format, flags);
 
     if (forceTextInput) { io.KeyCtrl = prevCtrl; }
-    if (spoofLeftClick) { io.MouseClicked[ImGuiMouseButton_Left] = prevMouseClickedLeft; }
+    if (spoofLeftClick) {
+        io.MouseClicked[ImGuiMouseButton_Left] = prevMouseClickedLeft;
+        io.MouseDown[ImGuiMouseButton_Left] = prevMouseDownLeft;
+        io.MouseDownDuration[ImGuiMouseButton_Left] = prevMouseDownDurationLeft;
+    }
     if (ImGui::IsItemHovered()) { ImGui::SetTooltip("Right click to edit precisely"); }
     return changed;
 }
