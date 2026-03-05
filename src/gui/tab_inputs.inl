@@ -710,6 +710,10 @@ if (ImGui::BeginTabItem("Inputs")) {
                                vk == VK_RSHIFT || vk == VK_MENU || vk == VK_LMENU || vk == VK_RMENU || vk == VK_LWIN || vk == VK_RWIN;
                     };
 
+                    auto isMouseButtonVk = [](DWORD vk) -> bool {
+                        return vk == VK_LBUTTON || vk == VK_RBUTTON || vk == VK_MBUTTON || vk == VK_XBUTTON1 || vk == VK_XBUTTON2;
+                    };
+
                     auto resolveTriggerVkFor = [&](const KeyRebind* rb, DWORD originalVk) -> DWORD {
                         DWORD triggerVk = rb ? rb->toKey : originalVk;
                         if (triggerVk == 0) triggerVk = originalVk;
@@ -739,16 +743,21 @@ if (ImGui::BeginTabItem("Inputs")) {
                         return isModifierVk(scanVk);
                     };
 
-                    auto modifierCannotTypeFor = [&](const KeyRebind* rb, DWORD originalVk) -> bool {
+                    auto cannotTypeFor = [&](const KeyRebind* rb, DWORD originalVk) -> bool {
                         if (!rb) return false;
                         const DWORD triggerVk = resolveTriggerVkFor(rb, originalVk);
                         const DWORD triggerScan = resolveTriggerScanFor(rb, originalVk);
-                        return isModifierTriggerScan(triggerScan, triggerVk);
+                        if (isModifierTriggerScan(triggerScan, triggerVk)) return true;
+                        if (isMouseButtonVk(triggerVk)) return true;
+                        if (triggerVk == VK_BACK || triggerVk == VK_CAPITAL) return true;
+                        if (triggerVk == VK_DELETE || triggerVk == VK_HOME || triggerVk == VK_INSERT ||
+                            triggerVk == VK_END || triggerVk == VK_PRIOR || triggerVk == VK_NEXT) return true;
+                        return false;
                     };
 
                     auto typesValueForDisplay = [&](const KeyRebind* rb, DWORD originalVk) -> std::string {
                         if (!rb) return VkToString(originalVk);
-                        if (modifierCannotTypeFor(rb, originalVk)) return "Modifier keys cannot type";
+                        if (cannotTypeFor(rb, originalVk)) return "Cannot type";
                         if (rb->useCustomOutput && rb->customOutputUnicode != 0) return codepointToDisplay((uint32_t)rb->customOutputUnicode);
 
                         DWORD textVk = (rb->useCustomOutput && rb->customOutputVK != 0) ? rb->customOutputVK : originalVk;
@@ -1663,8 +1672,8 @@ if (ImGui::BeginTabItem("Inputs")) {
                             }
                         }
 
-                        if (modifierCannotTypeFor(rbPtr, s_layoutContextVk)) {
-                            ImGui::TextDisabled("Modifier keys cannot type");
+                        if (cannotTypeFor(rbPtr, s_layoutContextVk)) {
+                            ImGui::TextDisabled("Cannot type");
                         }
 
                         ImGui::Spacing();
