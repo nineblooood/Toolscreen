@@ -1082,6 +1082,9 @@ InputHandlerResult HandleHotkeys(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPa
         return { false, 0 };
     }
 
+    const bool isAutoRepeatKeyDown =
+        (uMsg == WM_KEYDOWN || uMsg == WM_SYSKEYDOWN) && isKeyDown && ((lParam & (static_cast<LPARAM>(1) << 30)) != 0);
+
     // This mirrors imgui_impl_win32 behavior and enables reliable hotkeys + key rebinding.
     vkCode = rawVkCode;
     if (uMsg == WM_KEYDOWN || uMsg == WM_SYSKEYDOWN || uMsg == WM_KEYUP || uMsg == WM_SYSKEYUP) {
@@ -1171,6 +1174,12 @@ InputHandlerResult HandleHotkeys(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPa
         // Hold-mode helper: activate target mode on press, revert to default on release
         auto handleHoldMode = [&](const std::string& targetMode, const std::string& hotkeyId, bool blockKey) -> InputHandlerResult {
             if (isKeyDown) {
+                if (isAutoRepeatKeyDown) {
+                    if (s_enableHotkeyDebug) { Log("[Hotkey] HOLD DOWN repeat ignored: " + hotkeyId); }
+                    if (blockKey) return { true, 0 };
+                    return { true, CallWindowProc(g_originalWndProc, hWnd, uMsg, wParam, lParam) };
+                }
+
                 auto now = std::chrono::steady_clock::now();
                 bool debounced = false;
                 {
