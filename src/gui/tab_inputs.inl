@@ -913,14 +913,14 @@ if (ImGui::BeginTabItem("Inputs")) {
                         if (layoutTextBoost < 0.85f) layoutTextBoost = 0.85f;
                         if (layoutTextBoost > 1.85f) layoutTextBoost = 1.85f;
 
-                        float labelFontSize = fLabel->FontSize * layoutTextBoost;
+                        float labelFontSize = fLabel->LegacySize * layoutTextBoost;
                         ImVec2 labelSz = fLabel->CalcTextSizeA(labelFontSize, FLT_MAX, 0.0f, primaryText.c_str());
 
                         if (textAvailW > 8.0f) {
                             float scaleW = textAvailW / (labelSz.x + 0.001f);
                             if (scaleW < 0.60f) scaleW = 0.60f;
                             if (scaleW > 1.00f) scaleW = 1.00f;
-                            labelFontSize = snapFontSize(fLabel->FontSize * layoutTextBoost * scaleW);
+                            labelFontSize = snapFontSize(fLabel->LegacySize * layoutTextBoost * scaleW);
                             labelSz = fLabel->CalcTextSizeA(labelFontSize, FLT_MAX, 0.0f, primaryText.c_str());
                         }
 
@@ -943,13 +943,13 @@ if (ImGui::BeginTabItem("Inputs")) {
                             float primaryFs = labelFontSize;
                             ImVec2 primarySz = f->CalcTextSizeA(primaryFs, FLT_MAX, 0.0f, primaryText.c_str());
 
-                            float secondaryFs = fSecondary->FontSize * layoutTextBoost;
+                            float secondaryFs = fSecondary->LegacySize * layoutTextBoost;
                             ImVec2 secondarySz = fSecondary->CalcTextSizeA(secondaryFs, FLT_MAX, 0.0f, secondaryText.c_str());
                             if (textAvailW > 8.0f) {
                                 float secScaleW = textAvailW / (secondarySz.x + 0.001f);
                                 if (secScaleW < 0.55f) secScaleW = 0.55f;
                                 if (secScaleW > 1.00f) secScaleW = 1.00f;
-                                secondaryFs = snapFontSize(fSecondary->FontSize * layoutTextBoost * secScaleW);
+                                secondaryFs = snapFontSize(fSecondary->LegacySize * layoutTextBoost * secScaleW);
                                 secondarySz = fSecondary->CalcTextSizeA(secondaryFs, FLT_MAX, 0.0f, secondaryText.c_str());
                             }
 

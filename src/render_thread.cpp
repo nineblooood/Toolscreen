@@ -461,9 +461,7 @@ static bool RT_TryInitializeImGui(HWND hwnd, const Config& cfg) {
         io.Fonts->AddFontDefault();
         (void)io.Fonts->Build();
     }
-    ImGui_ImplOpenGL3_DestroyFontsTexture();
-    ImGui_ImplOpenGL3_CreateFontsTexture();
-    if ((GLuint)(intptr_t)io.Fonts->TexID == 0) {
+    if ((GLuint)(intptr_t)io.Fonts->TexID._TexID == 0) {
         Log("ERROR: Render Thread: ImGui font texture ID is 0 after initialization; GUI may render black");
     }
 
@@ -3801,10 +3799,8 @@ static void RenderThreadFunc(void* gameGLContext) {
                             }
                         }
 
-                        ImGui_ImplOpenGL3_DestroyFontsTexture();
-                        ImGui_ImplOpenGL3_CreateFontsTexture();
 
-                        if ((GLuint)(intptr_t)io.Fonts->TexID == 0) {
+                        if ((GLuint)(intptr_t)io.Fonts->TexID._TexID == 0) {
                             Log("ERROR: Render Thread: ImGui font texture ID is 0 after reload; GUI may render black");
                         }
 
