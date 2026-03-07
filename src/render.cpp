@@ -15,6 +15,7 @@
 #include <iostream>
 #include <shared_mutex>
 #include <unordered_map>
+#include <unordered_set>
 
 static std::unordered_map<std::string, size_t> s_mirrorLookupCache;
 static std::unordered_map<std::string, size_t> s_imageLookupCache;
@@ -167,6 +168,7 @@ struct TextureGridLabel {
     GLint magFilter;
     GLint wrapS;
     GLint wrapT;
+    bool isOurs;
 };
 static std::vector<TextureGridLabel> s_textureGridLabels;
 static std::mutex s_textureGridMutex;
@@ -3073,12 +3075,66 @@ void RenderTextureGridOverlay(bool showTextureGrid, int modeWidth, int modeHeigh
     if (!g_glInitialized.load(std::memory_order_acquire) || g_solidColorProgram == 0) { return; }
 
     const int MAX_TEXTURE_ID = 100;
-    const int TILE_SIZE = 48;
-    const int PADDING = 80;
-    const int MARGIN = 80;
+    const int TILE_SIZE = 128;
+    const int PADDING = 1;
+    const int MARGIN = 1;
 
     int screenW = GetCachedWindowWidth();
     int screenH = GetCachedWindowHeight();
+
+    // Collect all Toolscreen-owned texture IDs for the "OURS" label
+    std::unordered_set<GLuint> ourTextureIds;
+    {
+        // Render thread FBO textures (scale, virtual cam, eye zoom snapshot, etc.)
+        std::vector<GLuint> rtExcludeIds;
+        GetRenderThreadCalibrationExcludeTextureIds(rtExcludeIds);
+        for (GLuint id : rtExcludeIds) { if (id != 0) ourTextureIds.insert(id); }
+
+        // Scene FBO texture
+        if (g_sceneTexture != 0) ourTextureIds.insert(g_sceneTexture);
+
+        // OBS textures
+        GLuint obsOverride = g_obsOverrideTexture.load(std::memory_order_acquire);
+        if (obsOverride != 0) ourTextureIds.insert(obsOverride);
+        GLuint obsCapture = GetObsCaptureTexture();
+        if (obsCapture != 0) ourTextureIds.insert(obsCapture);
+
+        // Mirror instance textures (try_lock to avoid blocking)
+        {
+            std::shared_lock<std::shared_mutex> lock(g_mirrorInstancesMutex, std::try_to_lock);
+            if (lock.owns_lock()) {
+                for (const auto& [name, inst] : g_mirrorInstances) {
+                    if (inst.fboTexture != 0) ourTextureIds.insert(inst.fboTexture);
+                    if (inst.fboTextureBack != 0) ourTextureIds.insert(inst.fboTextureBack);
+                    if (inst.tempCaptureTexture != 0) ourTextureIds.insert(inst.tempCaptureTexture);
+                    if (inst.finalTexture != 0) ourTextureIds.insert(inst.finalTexture);
+                    if (inst.finalTextureBack != 0) ourTextureIds.insert(inst.finalTextureBack);
+                }
+            }
+        }
+
+        // User image textures
+        {
+            std::unique_lock<std::mutex> lock(g_userImagesMutex, std::try_to_lock);
+            if (lock.owns_lock()) {
+                for (const auto& [name, inst] : g_userImages) {
+                    if (inst.textureId != 0) ourTextureIds.insert(inst.textureId);
+                    for (GLuint ft : inst.frameTextures) { if (ft != 0) ourTextureIds.insert(ft); }
+                }
+            }
+        }
+
+        // Background textures
+        {
+            std::unique_lock<std::mutex> lock(g_backgroundTexturesMutex, std::try_to_lock);
+            if (lock.owns_lock()) {
+                for (const auto& [name, inst] : g_backgroundTextures) {
+                    if (inst.textureId != 0) ourTextureIds.insert(inst.textureId);
+                    for (GLuint ft : inst.frameTextures) { if (ft != 0) ourTextureIds.insert(ft); }
+                }
+            }
+        }
+    }
 
     struct TexInfo { GLuint id; GLint width; GLint height; GLint internalFormat; };
     std::vector<TexInfo> validTextures;
@@ -3162,9 +3218,10 @@ void RenderTextureGridOverlay(bool showTextureGrid, int modeWidth, int modeHeigh
         float sizeMB = (texWidth * texHeight * 4) / (1024.0f * 1024.0f);
 
         {
+            bool isOurs = ourTextureIds.count(tex.id) > 0;
             std::lock_guard<std::mutex> lock(s_textureGridMutex);
             s_textureGridLabels.push_back({ tex.id, (float)x, (float)y, TILE_SIZE, texWidth, texHeight, sizeMB, (GLenum)internalFormat,
-                                            minFilter, magFilter, wrapS, wrapT });
+                                            minFilter, magFilter, wrapS, wrapT, isOurs });
         }
 
         texFilterStates[tex.id] = { minFilter, magFilter };
@@ -3301,8 +3358,13 @@ void RenderCachedTextureGridLabels() {
         char wrapText[32];
         sprintf_s(wrapText, "W:%s/%s", wrapSStr, wrapTStr);
 
-        const char* lines[] = { idText, resText, sizeText, formatText, filterText, wrapText };
-        const int lineCount = 6;
+        char ownerText[16];
+        sprintf_s(ownerText, "%s", label.isOurs ? "OURS" : "GAME");
+
+        //const char* lines[] = { idText, ownerText, resText, sizeText, formatText, filterText, wrapText };
+        //const int lineCount = 7;
+        const char* lines[] = { idText, ownerText };
+        const int lineCount = 2;
         float lineSpacing = 2.0f;
 
         float currentY = label.y + 2.0f;
@@ -3312,9 +3374,12 @@ void RenderCachedTextureGridLabels() {
 
             ImVec2 bgMin(textPos.x - 2, textPos.y - 1);
             ImVec2 bgMax(textPos.x + textSize.x + 2, textPos.y + textSize.y + 1);
-            drawList->AddRectFilled(bgMin, bgMax, IM_COL32(0, 0, 0, 180));
+            //drawList->AddRectFilled(bgMin, bgMax, IM_COL32(0, 0, 0, 180));
 
-            drawList->AddText(textPos, IM_COL32(255, 255, 255, 255), lines[i]);
+            ImU32 textCol = IM_COL32(255, 255, 255, 255);
+            // Highlight the owner line: cyan for OURS, default for GAME
+            if (i == 1 && label.isOurs) { textCol = IM_COL32(0, 200, 255, 255); }
+            drawList->AddText(textPos, textCol, lines[i]);
 
             currentY += textSize.y + lineSpacing;
         }

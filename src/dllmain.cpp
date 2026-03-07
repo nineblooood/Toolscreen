@@ -1442,9 +1442,13 @@ static BOOL SwapBuffersHook_Impl(WGLSWAPBUFFERS next, HDC hDc) {
 
         {
             bool showTextureGrid = frameCfg.debug.showTextureGrid;
+            ModeViewportInfo viewport = GetCurrentModeViewport();
+            // Store texture grid state so the render thread can start an ImGui frame for text labels
+            g_showTextureGrid.store(showTextureGrid, std::memory_order_relaxed);
+            g_textureGridModeWidth.store(viewport.width, std::memory_order_relaxed);
+            g_textureGridModeHeight.store(viewport.height, std::memory_order_relaxed);
             if (showTextureGrid && g_glInitialized.load(std::memory_order_acquire) && g_solidColorProgram != 0) {
                 PROFILE_SCOPE_CAT("Texture Grid Overlay", "Debug");
-                ModeViewportInfo viewport = GetCurrentModeViewport();
                 RenderTextureGridOverlay(true, viewport.width, viewport.height);
             }
         }
