@@ -19,7 +19,7 @@ if (ImGui::BeginTabItem(trc("tabs.mirrors"))) {
 
         std::string delete_button_label = "X##delete_mirror_" + std::to_string(i);
         if (ImGui::Button(delete_button_label.c_str(), ImVec2(ImGui::GetFrameHeight(), ImGui::GetFrameHeight()))) {
-            std::string popup_id = "Delete Mirror?##" + std::to_string(i);
+            std::string popup_id = tr("mirrors.delete_mirror") + "##" + std::to_string(i);
             ImGui::OpenPopup(popup_id.c_str());
         }
 

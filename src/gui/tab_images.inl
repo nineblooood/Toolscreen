@@ -17,7 +17,7 @@ if (ImGui::BeginTabItem(trc("tabs.images"))) {
 
         std::string delete_img_label = "X##delete_image_" + std::to_string(i);
         if (ImGui::Button(delete_img_label.c_str(), ImVec2(ImGui::GetFrameHeight(), ImGui::GetFrameHeight()))) {
-            std::string img_popup_id = "Delete Image?##" + std::to_string(i);
+            std::string img_popup_id = (tr("images.delete_images") + "##" + std::to_string(i));
             ImGui::OpenPopup(img_popup_id.c_str());
         }
 

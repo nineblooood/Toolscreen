@@ -2377,25 +2377,24 @@ if (ImGui::BeginTabItem(trc("tabs.modes"))) {
 
             std::string delete_button_label = "X##delete_mode_" + std::to_string(i);
             if (ImGui::Button(delete_button_label.c_str(), ImVec2(ImGui::GetFrameHeight(), ImGui::GetFrameHeight()))) {
-                std::string popup_id = "Delete Mode?##" + std::to_string(i);
+                std::string popup_id = (tr("modes.delete_mode") + "##" + std::to_string(i));
                 ImGui::OpenPopup(popup_id.c_str());
             }
 
             if (!resolutionSupported) { ImGui::EndDisabled(); }
 
-            // Popup modal outside of node_open block so it can be displayed even when collapsed
-            std::string popup_id = "Delete Mode?##" + std::to_string(i);
+            std::string popup_id = (tr("modes.delete_mode") + "##" + std::to_string(i));
             if (ImGui::BeginPopupModal(popup_id.c_str(), NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
-                ImGui::Text("Are you sure you want to delete mode '%s'?\nThis cannot be undone.", mode.id.c_str());
+                ImGui::Text("%s", tr("modes.delete_mode_confirm", mode.id.c_str()).c_str());
                 ImGui::Separator();
-                if (ImGui::Button("OK", ImVec2(120, 0))) {
+                if (ImGui::Button(trc("button.ok"), ImVec2(120, 0))) {
                     mode_to_remove = (int)i;
                     g_configIsDirty = true;
                     ImGui::CloseCurrentPopup();
                 }
                 ImGui::SetItemDefaultFocus();
                 ImGui::SameLine();
-                if (ImGui::Button("Cancel", ImVec2(120, 0))) { ImGui::CloseCurrentPopup(); }
+                if (ImGui::Button(trc("button.cancel"), ImVec2(120, 0))) { ImGui::CloseCurrentPopup(); }
                 ImGui::EndPopup();
             }
 
