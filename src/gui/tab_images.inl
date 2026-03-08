@@ -187,7 +187,7 @@ if (ImGui::BeginTabItem(trc("tabs.images"))) {
                 ImGui::PushID(static_cast<int>(k));
                 auto& ck = img.colorKeys[k];
 
-                ImGui::Text(trc("images.key_format", k + 1));
+                ImGui::Text(trc("images.key_format"), k + 1);
                 ImGui::SameLine();
                 ImGui::PushItemWidth(150.0f);
                 if (ImGui::ColorEdit3("##color", &ck.color.r, ImGuiColorEditFlags_NoLabel)) g_configIsDirty = true;
