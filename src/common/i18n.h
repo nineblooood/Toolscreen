@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <format>
 #include <nlohmann/json.hpp>
 #include <string>
@@ -21,6 +22,6 @@ template <typename... Args>
 inline char* trc(const char* key, const Args&... args) {
     std::string s   = tr(key, args...);
     char*       ret = new char[s.size() + 1];
-    strcpy(ret, s.c_str());
+    std::copy_n(s.c_str(), s.size() + 1, ret);
     return ret;
 }
